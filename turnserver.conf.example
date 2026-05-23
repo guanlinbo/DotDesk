@@ -1,0 +1,33 @@
+# DotDesk coturn 示例配置
+# 部署后建议把 static-auth-secret 改成 REST API 临时凭证模式。
+
+listening-port=3478
+tls-listening-port=5349
+listening-ip=0.0.0.0
+relay-ip=0.0.0.0
+external-ip=185.200.65.254
+
+realm=dotdesk
+server-name=dotdesk-turn
+
+# 与客户端当前 ICE 配置保持一致：
+user=dotdesk:DotDesk2025
+lt-cred-mech
+
+# UDP / TCP TURN 都开启；客户端会先 UDP，再 TCP，再 TLS。
+no-multicast-peers
+no-loopback-peers
+fingerprint
+mobility
+
+# 推荐按服务器带宽调整。
+total-quota=100
+user-quota=4
+max-bps=20000000
+
+# TLS 可选：没有证书时可以先注释 cert/pkey，并暂时不用 turns:5349。
+# cert=/etc/letsencrypt/live/turn.example.com/fullchain.pem
+# pkey=/etc/letsencrypt/live/turn.example.com/privkey.pem
+
+log-file=/var/log/turnserver/turnserver.log
+simple-log

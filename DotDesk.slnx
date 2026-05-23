@@ -1,0 +1,7 @@
+<Solution>
+  <Project Path="DotDesk.App/DotDesk.App.csproj" />
+  <Project Path="DotDesk.Client/DotDesk.Client.csproj" />
+  <Project Path="DotDesk.Controller/DotDesk.Controller.csproj" Id="d7df9bf5-b4c4-4c66-a3b4-0daf60211b08" />
+  <Project Path="DotDesk.Core/DotDesk.Core.csproj" />
+  <Project Path="DotDesk.csproj" Id="09ef75a7-992f-411b-8f85-a9b26a45153d" />
+</Solution>
