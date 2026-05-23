@@ -18,6 +18,7 @@ namespace DotDesk.Client.Input
     {
         /// <summary>收到请求关键帧消息时触发</summary>
         public static event Action? OnRequestKeyFrame;
+        public static event Action<string>? OnCursorChanged;
 
         public static void Handle(string json)
         {
@@ -34,6 +35,7 @@ namespace DotDesk.Client.Input
                         var x = node["x"]?.GetValue<double>() ?? 0;
                         var y = node["y"]?.GetValue<double>() ?? 0;
                         InputSimulator.MouseMove(x, y);
+                        OnCursorChanged?.Invoke(InputSimulator.GetCurrentCursorKind());
                         break;
 
                     case "mousedown":
@@ -55,9 +57,24 @@ namespace DotDesk.Client.Input
 
                     case "keydown":
                     case "keyup":
-                        var keyCode = node["keyCode"]?.GetValue<int>() ?? 0;
                         var isDown = type == "keydown";
-                        InputSimulator.KeyPress((ushort)keyCode, isDown);
+                        var scanCode = node["scanCode"]?.GetValue<int>() ?? 0;
+                        var extended = node["extended"]?.GetValue<bool>() ?? false;
+                        if (scanCode > 0)
+                        {
+                            InputSimulator.KeyScan((ushort)scanCode, isDown, extended);
+                        }
+                        else
+                        {
+                            var keyCode = node["keyCode"]?.GetValue<int>() ?? 0;
+                            InputSimulator.KeyPress((ushort)keyCode, isDown);
+                        }
+                        break;
+
+                    case "secureAttention":
+                        // Ctrl+Alt+Del 是 Windows 安全注意序列，普通桌面进程无法用 SendInput 触发。
+                        // ToDesk/RustDesk 这类一般依赖安装后的服务进程/系统组件完成。
+                        AppLogger.Log("Input", "收到 Ctrl+Alt+Del 请求，但当前未实现服务级安全注意序列注入");
                         break;
 
                     case "requestKeyFrame":

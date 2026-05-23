@@ -27,9 +27,15 @@ namespace DotDesk.Client.Network
 
         public bool IsConnected =>
             _mediaReady || _pc?.connectionState == RTCPeerConnectionState.connected;
+        public bool IsSignalingConnected => _sig.IsConnected;
 
         public string Password => _otp.Current;
         public string RefreshPassword() => _otp.Refresh();
+        public string SetFixedPassword(string? password)
+        {
+            _otp.SetFixed(password);
+            return _otp.Current;
+        }
 
         private readonly SignalingClient _sig;
         private readonly DotDesk.Core.Models.OneTimePassword _otp = new();
@@ -70,8 +76,19 @@ namespace DotDesk.Client.Network
         public WebRtcPusher(string signalingServerUrl, string deviceCode)
         {
             _sig = new SignalingClient(signalingServerUrl, deviceCode, "host");
+            _otp.SetFixed(DotDeskSettingsStore.Load().FixedPassword);
 
             _sig.OnLog += msg => Log(msg);
+            _sig.OnStateChanged += state =>
+            {
+                // 把信令连接状态同步给主界面，服务器断开时显示断网页。
+                if (state == SignalingState.Connecting)
+                    OnConnectionStatus?.Invoke("连接服务器中...");
+                else if (state == SignalingState.Connected)
+                    OnConnectionStatus?.Invoke("等待控制端连接...");
+                else if (state is SignalingState.Disconnected or SignalingState.Reconnecting)
+                    OnConnectionStatus?.Invoke("连接失败: 信令服务器不可达，正在自动重试");
+            };
             _sig.OnPeerJoined += OnPeerJoined;
             _sig.OnAuth += OnAuthReceived;
             _sig.OnAnswer += OnAnswerReceived;
@@ -92,6 +109,7 @@ namespace DotDesk.Client.Network
             };
 
             InputHandler.OnRequestKeyFrame += HandleRequestKeyFrame;
+            InputHandler.OnCursorChanged += HandleCursorChanged;
         }
 
         public async Task StartAsync(int width, int height, int fps = 30)
@@ -573,6 +591,28 @@ namespace DotDesk.Client.Network
             catch { }
         }
 
+        private string? _lastCursorKind;
+        private long _lastCursorTick;
+
+        private void HandleCursorChanged(string cursorKind)
+        {
+            try
+            {
+                if (_dataChannel?.readyState != RTCDataChannelState.open)
+                    return;
+
+                long now = Stopwatch.GetTimestamp();
+                if (cursorKind == _lastCursorKind &&
+                    now - _lastCursorTick < Stopwatch.Frequency / 5)
+                    return;
+
+                _lastCursorKind = cursorKind;
+                _lastCursorTick = now;
+                _dataChannel.send($"{{\"type\":\"cursor\",\"cursor\":\"{cursorKind}\"}}");
+            }
+            catch { }
+        }
+
         private void ResetPc()
         {
             _mediaReady = false;
@@ -661,8 +701,8 @@ namespace DotDesk.Client.Network
         private bool ShouldSendEncodedFrame(int byteCount, bool isKeyFrame)
         {
             // 软背压：没有 SIPSorcery 视频 bufferedAmount，只能在应用层做字节预算。
-            // 网络卡时优先丢 P 帧，避免发送队列无限涨。
-            int maxBytesPerSecond = _allowRelay ? 52_000 : 90_000;
+            // 网络卡时只丢 P 帧，关键帧必须放行，否则接收端会一直等关键帧导致画面停住。
+            int maxBytesPerSecond = _allowRelay ? 180_000 : 320_000;
             long now = Stopwatch.GetTimestamp();
 
             lock (_sendBudgetLock)
@@ -672,6 +712,14 @@ namespace DotDesk.Client.Network
                 {
                     _sendBudgetWindowTick = now;
                     _sendBudgetBytes = 0;
+                }
+
+                if (isKeyFrame)
+                {
+                    // 关键帧是解码恢复点：放行并重置预算窗口，避免被前一秒的 P 帧预算拖死。
+                    _sendBudgetWindowTick = now;
+                    _sendBudgetBytes = Math.Min(byteCount, maxBytesPerSecond / 2);
+                    return true;
                 }
 
                 if (!isKeyFrame && _sendBudgetBytes + byteCount > maxBytesPerSecond)
@@ -685,7 +733,7 @@ namespace DotDesk.Client.Network
         private void MaybeForcePeriodicKeyFrame()
         {
             long now = Stopwatch.GetTimestamp();
-            long intervalTicks = Stopwatch.Frequency * (_allowRelay ? 3 : 4);
+            long intervalTicks = Stopwatch.Frequency * (_allowRelay ? 5 : 4);
             long last = Interlocked.Read(ref _lastPeriodicKeyFrameTick);
             if (last != 0 && now - last < intervalTicks)
                 return;
@@ -790,7 +838,7 @@ namespace DotDesk.Client.Network
         {
             var servers = new List<RTCIceServer>
             {
-                new RTCIceServer { urls = "stun:185.200.65.254:3478" },
+                new RTCIceServer { urls = "stun:159.75.93.74:3478" },
                 new RTCIceServer { urls = "stun:stun.l.google.com:19302" },
                 new RTCIceServer { urls = "stun:stun1.l.google.com:19302" },
                 new RTCIceServer { urls = "stun:stun.qq.com:3478" },
@@ -801,20 +849,20 @@ namespace DotDesk.Client.Network
             {
                 servers.Add(new RTCIceServer
                 {
-                    urls = "turn:185.200.65.254:3478?transport=udp",
+                    urls = "turn:159.75.93.74:3478?transport=udp",
                     username = "dotdesk",
                     credential = "DotDesk2025",
                 });
                 servers.Add(new RTCIceServer
                 {
-                    urls = "turn:185.200.65.254:3478?transport=tcp",
+                    urls = "turn:159.75.93.74:3478?transport=tcp",
                     username = "dotdesk",
                     credential = "DotDesk2025",
                 });
                 // 可选：如果 coturn 配置了 TLS 证书，启用 5349。
                 servers.Add(new RTCIceServer
                 {
-                    urls = "turns:185.200.65.254:5349?transport=tcp",
+                    urls = "turns:159.75.93.74:5349?transport=tcp",
                     username = "dotdesk",
                     credential = "DotDesk2025",
                 });
@@ -850,6 +898,7 @@ namespace DotDesk.Client.Network
             _authPassed = false;
 
             InputHandler.OnRequestKeyFrame -= HandleRequestKeyFrame;
+            InputHandler.OnCursorChanged -= HandleCursorChanged;
 
             try { _sig.Disconnect(); } catch { }
 

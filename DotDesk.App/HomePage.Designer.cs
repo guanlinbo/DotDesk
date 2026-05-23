@@ -23,8 +23,6 @@ namespace DotDesk.App
             securitySubtitleLabel = new AntdUI.Label();
             securityTitleLabel = new AntdUI.Label();
             securityIconLabel = new AntdUI.Label();
-            inviteHelpNavButton = new AntdUI.Button();
-            favoritesNavButton = new AntdUI.Button();
             recentNavButton = new AntdUI.Button();
             deviceListNavButton = new AntdUI.Button();
             remoteControlNavButton = new AntdUI.Button();
@@ -77,8 +75,6 @@ namespace DotDesk.App
             // sidebarPanel
             // 
             sidebarPanel.Controls.Add(securityCardPanel);
-            sidebarPanel.Controls.Add(inviteHelpNavButton);
-            sidebarPanel.Controls.Add(favoritesNavButton);
             sidebarPanel.Controls.Add(recentNavButton);
             sidebarPanel.Controls.Add(deviceListNavButton);
             sidebarPanel.Controls.Add(remoteControlNavButton);
@@ -104,7 +100,7 @@ namespace DotDesk.App
             // 
             // securityArrowLabel
             // 
-            securityArrowLabel.Location = new Point(248, 28);
+            securityArrowLabel.Location = new Point(248, 1);
             securityArrowLabel.Name = "securityArrowLabel";
             securityArrowLabel.Size = new Size(24, 28);
             securityArrowLabel.TabIndex = 3;
@@ -121,7 +117,7 @@ namespace DotDesk.App
             // 
             // securityTitleLabel
             // 
-            securityTitleLabel.Location = new Point(72, 22);
+            securityTitleLabel.Location = new Point(72, 5);
             securityTitleLabel.Name = "securityTitleLabel";
             securityTitleLabel.Size = new Size(160, 26);
             securityTitleLabel.TabIndex = 1;
@@ -129,32 +125,16 @@ namespace DotDesk.App
             // 
             // securityIconLabel
             // 
-            securityIconLabel.Location = new Point(22, 24);
+            securityIconLabel.Location = new Point(22, -6);
             securityIconLabel.Name = "securityIconLabel";
             securityIconLabel.Size = new Size(38, 38);
             securityIconLabel.TabIndex = 0;
             securityIconLabel.Text = "✓";
             securityIconLabel.TextAlign = ContentAlignment.MiddleCenter;
             // 
-            // inviteHelpNavButton
-            // 
-            inviteHelpNavButton.Location = new Point(24, 520);
-            inviteHelpNavButton.Name = "inviteHelpNavButton";
-            inviteHelpNavButton.Size = new Size(282, 44);
-            inviteHelpNavButton.TabIndex = 6;
-            inviteHelpNavButton.Text = "邀请与帮助";
-            // 
-            // favoritesNavButton
-            // 
-            favoritesNavButton.Location = new Point(24, 474);
-            favoritesNavButton.Name = "favoritesNavButton";
-            favoritesNavButton.Size = new Size(282, 44);
-            favoritesNavButton.TabIndex = 5;
-            favoritesNavButton.Text = "收藏夹";
-            // 
             // recentNavButton
             // 
-            recentNavButton.Location = new Point(24, 428);
+            recentNavButton.Location = new Point(24, 460);
             recentNavButton.Name = "recentNavButton";
             recentNavButton.Size = new Size(282, 44);
             recentNavButton.TabIndex = 4;
@@ -162,7 +142,7 @@ namespace DotDesk.App
             // 
             // deviceListNavButton
             // 
-            deviceListNavButton.Location = new Point(24, 382);
+            deviceListNavButton.Location = new Point(24, 414);
             deviceListNavButton.Name = "deviceListNavButton";
             deviceListNavButton.Size = new Size(282, 44);
             deviceListNavButton.TabIndex = 3;
@@ -170,7 +150,7 @@ namespace DotDesk.App
             // 
             // remoteControlNavButton
             // 
-            remoteControlNavButton.Location = new Point(24, 336);
+            remoteControlNavButton.Location = new Point(24, 368);
             remoteControlNavButton.Name = "remoteControlNavButton";
             remoteControlNavButton.Size = new Size(282, 44);
             remoteControlNavButton.TabIndex = 2;
@@ -518,8 +498,6 @@ namespace DotDesk.App
         private AntdUI.Button remoteControlNavButton;
         private AntdUI.Button deviceListNavButton;
         private AntdUI.Button recentNavButton;
-        private AntdUI.Button favoritesNavButton;
-        private AntdUI.Button inviteHelpNavButton;
         private AntdUI.Panel securityCardPanel;
         private AntdUI.Label securityIconLabel;
         private AntdUI.Label securityTitleLabel;

@@ -1,5 +1,9 @@
 ﻿using System;
+using System.ComponentModel;
 using System.Drawing;
+using System.Drawing.Drawing2D;
+using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -14,6 +18,8 @@ namespace DotDesk.App
 {
     public partial class HomePage : UserControl
     {
+        public event Action<bool>? NetworkOfflineChanged;
+
         // ── 业务对象 ─────────────────────────────────────────────────
         private AutoStartService? _autoStart;
         private WebRtcReceiver? _receiver;
@@ -27,10 +33,17 @@ namespace DotDesk.App
         private System.Windows.Forms.Panel? _controlledNoticePanel;
         private System.Windows.Forms.Label? _controlledNoticeTitle;
         private System.Windows.Forms.Label? _controlledNoticeSubtitle;
+        private System.Windows.Forms.Panel? _offlineOverlay;
+        private System.Windows.Forms.Panel? _offlineCard;
+        private System.Windows.Forms.Label? _offlineTitle;
+        private System.Windows.Forms.Label? _offlineSubtitle;
+        private AntdUI.Button? _offlineRetryButton;
+        private bool _formattingRemoteId;
+        private readonly List<PictureBox> _runtimeIcons = new();
 
         // ── 服务器地址 ───────────────────────────────────────────────
-        private const string SERVER_WS = "ws://185.200.65.254:5000";
-        private const string SERVER_HTTP = "http://185.200.65.254:5000";
+        private const string SERVER_WS = "ws://159.75.93.74:5000";
+        private const string SERVER_HTTP = "http://159.75.93.74:5000";
 
         // ─────────────────────────────────────────────────────────────
         public HomePage()
@@ -46,12 +59,14 @@ namespace DotDesk.App
 
         private void InitUI()
         {
-            Size = new Size(900, 514);
+            Size = new Size(1000, 560);
             LayoutCompactHome();
             BackColor = Color.FromArgb(246, 249, 255);
 
-            sidebarPanel.Back = Color.White;
+            sidebarPanel.Back = Color.FromArgb(241, 245, 249);
+            sidebarPanel.BackColor = Color.FromArgb(241, 245, 249);
             mainContentPanel.Back = Color.FromArgb(246, 249, 255);
+            mainContentPanel.BackColor = Color.FromArgb(246, 249, 255);
 
             StyleCard(heroCardPanel, Color.FromArgb(30, 94, 255));
             StyleCard(deviceInfoCardPanel, Color.White);
@@ -75,6 +90,7 @@ namespace DotDesk.App
             onlineStatusLabel.Text = "在线";
             onlineStatusLabel.ForeColor = Color.White;
             onlineStatusLabel.BackColor = Color.Transparent;
+            AddIcon(heroCardPanel, "knyy_xts.png", new Point(142, 42), new Size(68, 48));
 
             lblIdTitle.Text = "ID";
             lblIdTitle.Font = new Font("Segoe UI", 10F);
@@ -116,13 +132,18 @@ namespace DotDesk.App
             connectButton.Text = "连接";
             connectButton.ForeColor = Color.White;
             connectButton.OriginalBackColor = Color.FromArgb(0, 96, 220);
+            connectButton.BackColor = Color.FromArgb(0, 96, 220);
+            connectButton.Radius = 10;
             connectMenuButton.Font = new Font("Segoe UI", 18F);
             connectMenuButton.Text = "v";
             connectMenuButton.ForeColor = Color.FromArgb(15, 23, 42);
+            connectMenuButton.Radius = 10;
 
             remoteIdInput.Text = "";
             remoteIdInput.PlaceholderText = "输入对方 ID";
             remoteIdInput.Font = new Font("Microsoft YaHei UI", 15F);
+            remoteIdInput.Radius = 10;
+            remoteIdInput.TextChanged += (_, _) => FormatRemoteIdInput();
 
             logInput.Text = "";
             logInput.Multiline = true;
@@ -130,40 +151,40 @@ namespace DotDesk.App
             logInput.Visible = false;
 
             StyleNavButton(remoteControlNavButton, active: true);
-            remoteControlNavButton.Text = "远程控制";
+            remoteControlNavButton.Text = "      远程控制";
             StyleNavButton(deviceListNavButton, active: false);
-            deviceListNavButton.Text = "设备列表";
+            deviceListNavButton.Text = "      设备列表";
             StyleNavButton(recentNavButton, active: false);
-            recentNavButton.Text = "最近连接";
-            StyleNavButton(favoritesNavButton, active: false);
-            favoritesNavButton.Text = "收藏夹";
-            StyleNavButton(inviteHelpNavButton, active: false);
-            inviteHelpNavButton.Text = "邀请与帮助";
-
+            recentNavButton.Text = "      最近连接";
             copyIdButton.Click += (_, _) => Clipboard.SetText(DeviceCode.GetFormatted());
             refreshPasswordButton.Click += (_, _) =>
             {
                 if (_autoStart == null) return;
                 lblPwd.Text = _autoStart.RefreshPassword();
             };
+            showPasswordButton.Click += (_, _) => ShowFixedPasswordDialog();
 
             StyleFeatureCard(fileTransferIconLabel, fileTransferTitleLabel, fileTransferSubtitleLabel, Color.FromArgb(99, 102, 241));
-            fileTransferIconLabel.Text = "F";
+            fileTransferIconLabel.Text = "";
             fileTransferTitleLabel.Text = "文件传输";
             fileTransferSubtitleLabel.Text = "安全快速传输文件";
             StyleFeatureCard(terminalIconLabel, terminalTitleLabel, terminalSubtitleLabel, Color.FromArgb(16, 185, 129));
-            terminalIconLabel.Text = ">";
+            terminalIconLabel.Text = "";
             terminalTitleLabel.Text = "远程终端";
             terminalSubtitleLabel.Text = "访问远程命令行";
             recentTitleLabel.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold);
             recentTitleLabel.Text = "最近连接";
             recentTitleLabel.BackColor = Color.Transparent;
-            BuildRecentListPreview();
+            BuildRecentList();
             settingsTipLabel.BackColor = Color.Transparent;
             settingsTipLabel.Text = "想要无人值守访问？试试设置访问密码";
             settingsTipLinkLabel.BackColor = Color.Transparent;
             settingsTipLinkLabel.Text = "前往设置 >";
             settingsTipLinkLabel.ForeColor = Color.FromArgb(0, 96, 220);
+            settingsTipPanel.Cursor = Cursors.Hand;
+            settingsTipPanel.Click += (_, _) => ShowFixedPasswordDialog();
+            settingsTipLabel.Click += (_, _) => ShowFixedPasswordDialog();
+            settingsTipLinkLabel.Click += (_, _) => ShowFixedPasswordDialog();
 
             securityIconLabel.BackColor = Color.FromArgb(52, 211, 153);
             securityIconLabel.ForeColor = Color.White;
@@ -177,19 +198,27 @@ namespace DotDesk.App
             securitySubtitleLabel.BackColor = Color.Transparent;
             securityArrowLabel.Text = ">";
             securityArrowLabel.BackColor = Color.Transparent;
+            AddIcon(sidebarPanel, "connect.png", new Point(38, 316), new Size(18, 18));
+            AddIcon(sidebarPanel, "device_list.png", new Point(38, 360), new Size(18, 18));
+            AddIcon(sidebarPanel, "recent.png", new Point(38, 404), new Size(18, 18));
+            AddIcon(fileTransferCardPanel, "image_transfer.png", new Point(12, 7), new Size(28, 26));
+            AddIcon(terminalCardPanel, "terminal.png", new Point(12, 7), new Size(28, 26));
+            AddIcon(securityCardPanel, "security.png", new Point(14, 13), new Size(30, 30));
 
             CreateLoadingOverlay();
             CreateControlledNotice();
+            CreateOfflineOverlay();
         }
 
         private void LayoutCompactHome()
         {
-            sidebarPanel.Width = 260;
-            mainContentPanel.Location = new Point(260, 0);
-            mainContentPanel.Size = new Size(640, 514);
+            sidebarPanel.Width = 300;
+            mainContentPanel.Location = new Point(300, 0);
+            mainContentPanel.Size = new Size(700, 560);
+            securityCardPanel.Location = new Point(24, 474);
 
-            heroCardPanel.Location = new Point(20, 18);
-            heroCardPanel.Size = new Size(220, 104);
+            heroCardPanel.Location = new Point(24, 20);
+            heroCardPanel.Size = new Size(252, 116);
             heroTitleLabel.Location = new Point(20, 18);
             heroTitleLabel.Size = new Size(140, 28);
             heroSubtitleLabel.Location = new Point(20, 46);
@@ -198,52 +227,50 @@ namespace DotDesk.App
             onlineStatusLabel.Location = new Point(42, 72);
             onlineStatusLabel.Size = new Size(150, 24);
 
-            deviceInfoCardPanel.Location = new Point(20, 144);
-            deviceInfoCardPanel.Size = new Size(220, 128);
+            deviceInfoCardPanel.Location = new Point(24, 154);
+            deviceInfoCardPanel.Size = new Size(252, 136);
             lblIdTitle.Location = new Point(18, 14);
             lblId.Location = new Point(18, 38);
             lblId.Size = new Size(150, 30);
-            copyIdButton.Location = new Point(176, 40);
+            copyIdButton.Location = new Point(206, 40);
             lblPwdTitle.Location = new Point(18, 72);
             lblPwd.Location = new Point(18, 94);
             lblPwd.Size = new Size(120, 28);
-            refreshPasswordButton.Location = new Point(148, 94);
-            showPasswordButton.Location = new Point(180, 94);
+            refreshPasswordButton.Location = new Point(178, 94);
+            showPasswordButton.Location = new Point(210, 94);
 
-            remoteControlNavButton.Location = new Point(20, 292);
-            deviceListNavButton.Location = new Point(20, 332);
-            recentNavButton.Location = new Point(20, 372);
-            favoritesNavButton.Location = new Point(20, 412);
-            inviteHelpNavButton.Location = new Point(20, 452);
-            foreach (var button in new[] { remoteControlNavButton, deviceListNavButton, recentNavButton, favoritesNavButton, inviteHelpNavButton })
-                button.Size = new Size(220, 34);
+            remoteControlNavButton.Location = new Point(24, 308);
+            deviceListNavButton.Location = new Point(24, 352);
+            recentNavButton.Location = new Point(24, 396);
+            foreach (var button in new[] { remoteControlNavButton, deviceListNavButton, recentNavButton })
+                button.Size = new Size(252, 38);
 
-            securityCardPanel.Location = new Point(20, 486);
-            securityCardPanel.Size = new Size(220, 56);
-            securityIconLabel.Location = new Point(14, 13);
+            securityCardPanel.Location = new Point(24, 480);
+            securityCardPanel.Size = new Size(252, 60);
+            //securityIconLabel.Location = new Point(14, 13);
             securityIconLabel.Size = new Size(30, 30);
-            securityTitleLabel.Location = new Point(56, 8);
+            //securityTitleLabel.Location = new Point(56, 8);
             securityTitleLabel.Size = new Size(126, 22);
             securitySubtitleLabel.Visible = true;
-            securitySubtitleLabel.Location = new Point(56, 30);
+            //securitySubtitleLabel.Location = new Point(56, 30);
             securitySubtitleLabel.Size = new Size(126, 20);
-            securityArrowLabel.Location = new Point(190, 15);
+            securityArrowLabel.Location = new Point(222, 17);
 
-            connectCardPanel.Location = new Point(24, 26);
-            connectCardPanel.Size = new Size(592, 178);
+            connectCardPanel.Location = new Point(34, 30);
+            connectCardPanel.Size = new Size(632, 184);
             connectionTitleLabel.Location = new Point(28, 22);
             connectionTitleLabel.Size = new Size(180, 34);
             connectionHelpLabel.Location = new Point(192, 28);
             remoteIdInput.Location = new Point(28, 66);
-            remoteIdInput.Size = new Size(360, 48);
-            connectButton.Location = new Point(398, 66);
-            connectButton.Size = new Size(92, 48);
-            connectMenuButton.Location = new Point(502, 66);
+            remoteIdInput.Size = new Size(396, 50);
+            connectButton.Location = new Point(434, 66);
+            connectButton.Size = new Size(106, 50);
+            connectMenuButton.Location = new Point(552, 66);
             connectMenuButton.Size = new Size(52, 48);
             fileTransferCardPanel.Location = new Point(28, 130);
-            fileTransferCardPanel.Size = new Size(250, 38);
-            terminalCardPanel.Location = new Point(304, 130);
-            terminalCardPanel.Size = new Size(250, 38);
+            fileTransferCardPanel.Size = new Size(276, 40);
+            terminalCardPanel.Location = new Point(328, 130);
+            terminalCardPanel.Size = new Size(276, 40);
             fileTransferIconLabel.Location = new Point(12, 7);
             fileTransferIconLabel.Size = new Size(26, 24);
             fileTransferTitleLabel.Location = new Point(52, 4);
@@ -255,25 +282,31 @@ namespace DotDesk.App
             terminalSubtitleLabel.Location = new Point(52, 22);
             terminalSubtitleLabel.Visible = true;
 
-            recentCardPanel.Location = new Point(24, 222);
-            recentCardPanel.Size = new Size(592, 222);
+            recentCardPanel.Location = new Point(34, 232);
+            recentCardPanel.Size = new Size(632, 230);
             recentTitleLabel.Location = new Point(22, 16);
             logInput.Location = new Point(22, 50);
-            logInput.Size = new Size(548, 148);
+            logInput.Size = new Size(588, 148);
 
-            settingsTipPanel.Location = new Point(24, 462);
-            settingsTipPanel.Size = new Size(592, 40);
+            settingsTipPanel.Location = new Point(34, 482);
+            settingsTipPanel.Size = new Size(632, 44);
             settingsTipLabel.Location = new Point(18, 10);
             settingsTipLabel.Size = new Size(390, 22);
-            settingsTipLinkLabel.Location = new Point(476, 10);
+            settingsTipLinkLabel.Location = new Point(516, 11);
             settingsTipLinkLabel.Size = new Size(94, 22);
-            BuildRecentListPreview();
+            BuildRecentList();
         }
 
         private static void StyleCard(AntdUI.Panel panel, Color backColor)
         {
             panel.Back = backColor;
             panel.BackColor = backColor;
+            panel.Radius = 16;
+            panel.Shadow = 8;
+            panel.ShadowColor = Color.FromArgb(148, 163, 184);
+            panel.ShadowOpacity = 0.16F;
+            panel.ShadowOffsetX = 0;
+            panel.ShadowOffsetY = 4;
         }
 
         private static void StyleNavButton(AntdUI.Button button, bool active)
@@ -282,6 +315,7 @@ namespace DotDesk.App
             button.Font = new Font("Microsoft YaHei UI", 10.5F, active ? FontStyle.Bold : FontStyle.Regular);
             button.ForeColor = active ? Color.FromArgb(0, 96, 220) : Color.FromArgb(55, 65, 81);
             button.OriginalBackColor = active ? Color.FromArgb(234, 242, 255) : Color.White;
+            button.Radius = 8;
         }
 
         private static void StyleFeatureCard(AntdUI.Label icon, AntdUI.Label title, AntdUI.Label subtitle, Color iconColor)
@@ -295,7 +329,45 @@ namespace DotDesk.App
             subtitle.BackColor = Color.Transparent;
         }
 
-        private void BuildRecentListPreview()
+        private void AddIcon(Control parent, string fileName, Point location, Size size, bool sendToBack = false)
+        {
+            var icon = CreateIcon(fileName, location, size);
+            _runtimeIcons.Add(icon);
+            parent.Controls.Add(icon);
+            if (sendToBack) icon.SendToBack(); else icon.BringToFront();
+        }
+
+        private static PictureBox CreateIcon(string fileName, Point location, Size size) => new()
+        {
+            BackColor = Color.Transparent,
+            Image = LoadImage(fileName),
+            Location = location,
+            Size = size,
+            SizeMode = PictureBoxSizeMode.Zoom
+        };
+
+        private static Image? LoadImage(string fileName)
+        {
+            var path = Path.Combine(AppContext.BaseDirectory, "Resources", fileName);
+            return File.Exists(path) ? Image.FromFile(path) : null;
+        }
+
+        private static void AddOfflineReason(Control parent, string iconName, string text, int x)
+        {
+            parent.Controls.Add(CreateIcon(iconName, new Point(x + 22, 430), new Size(24, 24)));
+            parent.Controls.Add(new System.Windows.Forms.Label
+            {
+                BackColor = Color.Transparent,
+                ForeColor = Color.FromArgb(75, 85, 99),
+                Font = new Font("Microsoft YaHei UI", 8F),
+                Text = text,
+                TextAlign = ContentAlignment.MiddleCenter,
+                Location = new Point(x, 458),
+                Size = new Size(68, 22)
+            });
+        }
+
+        private void BuildRecentList()
         {
             for (int i = recentCardPanel.Controls.Count - 1; i >= 0; i--)
             {
@@ -303,9 +375,18 @@ namespace DotDesk.App
                     recentCardPanel.Controls.RemoveAt(i);
             }
 
-            AddRecentRow("办公电脑", "192.168.1.10", "今天 14:30", "W", Color.FromArgb(37, 99, 235), 54);
-            AddRecentRow("设计师电脑", "192.168.1.20", "昨天 09:12", "D", Color.FromArgb(16, 185, 129), 104);
-            AddRecentRow("服务器-测试环境", "10.0.0.88", "3 天前", "S", Color.FromArgb(124, 58, 237), 154);
+            var records = DotDeskSettingsStore.Load().RecentConnections
+                .OrderByDescending(x => x.LastConnectedAt)
+                .Take(3)
+                .ToList();
+
+            for (var i = 0; i < records.Count; i++)
+            {
+                var item = records[i];
+                var name = string.IsNullOrWhiteSpace(item.Name) ? $"远程设备 {item.DisplayCode}" : item.Name;
+                var address = string.IsNullOrWhiteSpace(item.Address) ? item.DisplayCode : item.Address;
+                AddRecentRow(name, address, FormatRecentTime(item.LastConnectedAt), GetRecentIcon(name), GetRecentColor(i), 54 + i * 50);
+            }
         }
 
         private void AddRecentRow(string name, string address, string time, string icon, Color iconColor, int y)
@@ -542,6 +623,9 @@ namespace DotDesk.App
         private void ShowRemoteDesktop(string deviceCode)
         {
             var remoteName = _receiver?.RemoteDeviceName;
+            DotDeskSettingsStore.AddRecentConnection(deviceCode, remoteName, DotDeskSettingsStore.FormatCode(deviceCode));
+            BuildRecentList();
+
             var form = new RemoteDesktopControl(_receiver!, deviceCode, remoteName, _lastServerLatencyMs);
             form.FormClosed += (_, _) =>
             {
@@ -563,9 +647,22 @@ namespace DotDesk.App
         private void SetStatus(string status)
         {
             if (InvokeRequired)
-                BeginInvoke(() => onlineStatusLabel.Text = status);
-            else
-                onlineStatusLabel.Text = status;
+            {
+                BeginInvoke(() => SetStatus(status));
+                return;
+            }
+
+            onlineStatusLabel.Text = status;
+            if (status.StartsWith("连接失败", StringComparison.Ordinal))
+            {
+                ShowOfflineOverlay(status);
+            }
+            else if (status.Contains("等待控制端", StringComparison.Ordinal) ||
+                     status.Contains("控制端已连接", StringComparison.Ordinal) ||
+                     status.Contains("推流中", StringComparison.Ordinal))
+            {
+                HideOfflineOverlay();
+            }
         }
 
         private void CleanUp()
@@ -595,6 +692,63 @@ namespace DotDesk.App
             connectButton.Enabled = true;
             HideLoading();
         }
+
+        private void FormatRemoteIdInput()
+        {
+            if (_formattingRemoteId) return;
+
+            var digits = new string((remoteIdInput.Text ?? "").Where(char.IsDigit).Take(9).ToArray());
+            var formatted = digits.Length <= 3
+                ? digits
+                : digits.Length <= 6
+                    ? $"{digits[..3]} {digits[3..]}"
+                    : $"{digits[..3]} {digits[3..6]} {digits[6..]}";
+
+            if (formatted == remoteIdInput.Text) return;
+
+            _formattingRemoteId = true;
+            remoteIdInput.Text = formatted;
+            remoteIdInput.SelectionStart = remoteIdInput.Text.Length;
+            _formattingRemoteId = false;
+        }
+
+        private void ShowFixedPasswordDialog()
+        {
+            using var dialog = new FixedPasswordDialog(DotDeskSettingsStore.Load().FixedPassword);
+            if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+
+            var fixedPassword = DotDeskSettingsStore.UpdateFixedPassword(dialog.FixedPassword);
+            lblPwd.Text = _autoStart?.SetFixedPassword(fixedPassword) ?? "------";
+
+            AppendLog(fixedPassword == null ? "已恢复随机临时密码" : "已设置固定访问密码");
+        }
+
+        private static string FormatRecentTime(DateTime time)
+        {
+            var now = DateTime.Now;
+            if (time.Date == now.Date) return $"今天 {time:HH:mm}";
+            if (time.Date == now.Date.AddDays(-1)) return $"昨天 {time:HH:mm}";
+            var days = (now.Date - time.Date).Days;
+            return days is > 1 and < 7 ? $"{days} 天前" : time.ToString("MM-dd HH:mm");
+        }
+
+        private static string GetRecentIcon(string name)
+        {
+            if (string.IsNullOrWhiteSpace(name)) return "D";
+            foreach (var ch in name)
+            {
+                if (char.IsLetterOrDigit(ch))
+                    return ch.ToString().ToUpperInvariant();
+            }
+            return "D";
+        }
+
+        private static Color GetRecentColor(int index) => (index % 3) switch
+        {
+            0 => Color.FromArgb(37, 99, 235),
+            1 => Color.FromArgb(16, 185, 129),
+            _ => Color.FromArgb(124, 58, 237)
+        };
 
         private void CreateLoadingOverlay()
         {
@@ -644,6 +798,179 @@ namespace DotDesk.App
             mainContentPanel.Resize += (_, _) => LayoutLoadingOverlay();
             LayoutLoadingOverlay();
         }
+
+        private void CreateOfflineOverlay()
+        {
+            _offlineOverlay = new System.Windows.Forms.Panel
+            {
+                BackColor = Color.FromArgb(248, 250, 252),
+                Dock = DockStyle.Fill,
+                Visible = false
+            };
+
+            _offlineCard = new RoundPanel
+            {
+                BackColor = Color.White,
+                Size = new Size(500, 548),
+                Radius = 18
+            };
+
+            var offlineImage = CreateIcon("wlcw.png", new Point(180, 32), new Size(140, 122));
+            _offlineCard.Controls.Add(offlineImage);
+
+            _offlineTitle = new System.Windows.Forms.Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 15F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(17, 24, 39),
+                Location = new Point(0, 168),
+                Size = new Size(500, 34),
+                Text = "网络连接已断开",
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            _offlineSubtitle = new System.Windows.Forms.Label
+            {
+                AutoSize = false,
+                BackColor = Color.Transparent,
+                Font = new Font("Microsoft YaHei UI", 10F),
+                ForeColor = Color.FromArgb(100, 116, 139),
+                Location = new Point(0, 210),
+                Size = new Size(500, 48),
+                Text = "请检查网络连接，或稍后重试\r\n我们会自动尝试重新连接",
+                TextAlign = ContentAlignment.MiddleCenter
+            };
+
+            _offlineRetryButton = new AntdUI.Button
+            {
+                Text = "⟳  重新连接",
+                Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White,
+                OriginalBackColor = Color.FromArgb(0, 96, 220),
+                Radius = 10,
+                Location = new Point(170, 282),
+                Size = new Size(160, 38)
+            };
+            _offlineRetryButton.Click += async (_, _) => await RetryAutoStartAsync();
+
+            var diagnoseButton = new AntdUI.Button
+            {
+                Text = "⌁  网络诊断",
+                Font = new Font("Microsoft YaHei UI", 9.5F),
+                ForeColor = Color.FromArgb(55, 65, 81),
+                OriginalBackColor = Color.White,
+                Radius = 10,
+                Location = new Point(170, 332),
+                Size = new Size(160, 36)
+            };
+
+            var lineLeft = new System.Windows.Forms.Label { BackColor = Color.FromArgb(226, 232, 240), Location = new Point(72, 410), Size = new Size(128, 1) };
+            var lineRight = new System.Windows.Forms.Label { BackColor = Color.FromArgb(226, 232, 240), Location = new Point(300, 410), Size = new Size(128, 1) };
+            var reasonTitle = new System.Windows.Forms.Label
+            {
+                BackColor = Color.Transparent,
+                ForeColor = Color.FromArgb(100, 116, 139),
+                Font = new Font("Microsoft YaHei UI", 8.5F),
+                Text = "可能的原因",
+                TextAlign = ContentAlignment.MiddleCenter,
+                Location = new Point(201, 398),
+                Size = new Size(98, 24)
+            };
+
+            AddOfflineReason(_offlineCard, "wifi.png", "网络未连接", 74);
+            AddOfflineReason(_offlineCard, "connect.png", "服务器不可达", 174);
+            AddOfflineReason(_offlineCard, "security.png", "防火墙限制", 274);
+            AddOfflineReason(_offlineCard, "device_list.png", "远程设备离线", 374);
+
+            var tip = new RoundPanel
+            {
+                BackColor = Color.FromArgb(241, 247, 255),
+                Location = new Point(56, 486),
+                Size = new Size(388, 54),
+                Radius = 10
+            };
+            tip.Controls.Add(CreateIcon("help_small.png", new Point(14, 16), new Size(18, 18)));
+            tip.Controls.Add(new System.Windows.Forms.Label
+            {
+                BackColor = Color.Transparent,
+                ForeColor = Color.FromArgb(0, 96, 220),
+                Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
+                Text = "小贴士",
+                Location = new Point(42, 8),
+                Size = new Size(70, 20)
+            });
+            tip.Controls.Add(new System.Windows.Forms.Label
+            {
+                BackColor = Color.Transparent,
+                ForeColor = Color.FromArgb(100, 116, 139),
+                Font = new Font("Microsoft YaHei UI", 8F),
+                Text = "请确保你的设备已连接到互联网，并且远程设备已开启",
+                Location = new Point(42, 28),
+                Size = new Size(326, 18)
+            });
+
+            _offlineCard.Controls.Add(_offlineTitle);
+            _offlineCard.Controls.Add(_offlineSubtitle);
+            _offlineCard.Controls.Add(_offlineRetryButton);
+            _offlineCard.Controls.Add(diagnoseButton);
+            _offlineCard.Controls.Add(lineLeft);
+            _offlineCard.Controls.Add(lineRight);
+            _offlineCard.Controls.Add(reasonTitle);
+            _offlineCard.Controls.Add(tip);
+            _offlineOverlay.Controls.Add(_offlineCard);
+            Resize += (_, _) => LayoutOfflineOverlay();
+            LayoutOfflineOverlay();
+        }
+
+        private void LayoutOfflineOverlay()
+        {
+            if (_offlineOverlay == null || _offlineCard == null) return;
+
+            var owner = FindForm();
+            var bounds = owner?.ClientRectangle ?? ClientRectangle;
+            _offlineOverlay.Bounds = bounds;
+
+            _offlineCard.Location = new Point(
+                Math.Max(12, (bounds.Width - _offlineCard.Width) / 2),
+                Math.Max(10, (bounds.Height - _offlineCard.Height) / 2));
+        }
+
+        private void ShowOfflineOverlay(string detail)
+        {
+            if (_offlineOverlay == null || _offlineSubtitle == null) return;
+
+            HideLoading();
+            _offlineSubtitle.Text = "请检查网络连接，或稍后重试\r\n我们会自动尝试重新连接";
+            NetworkOfflineChanged?.Invoke(true);
+        }
+
+        private void HideOfflineOverlay()
+        {
+            if (_offlineOverlay == null) return;
+            _offlineOverlay.Visible = false;
+            NetworkOfflineChanged?.Invoke(false);
+        }
+
+        public async Task RetryNetworkAsync()
+        {
+            if (_offlineRetryButton != null)
+            {
+                _offlineRetryButton.Enabled = false;
+                _offlineRetryButton.Text = "正在重连...";
+            }
+            _autoStartInitialized = false;
+            _autoStart?.Dispose();
+            _autoStart = null;
+            await InitAutoStartAsync();
+            if (_offlineRetryButton != null)
+            {
+                _offlineRetryButton.Enabled = true;
+                _offlineRetryButton.Text = "⟳  重新连接";
+            }
+        }
+
+        private async Task RetryAutoStartAsync() => await RetryNetworkAsync();
 
         private void LayoutLoadingOverlay()
         {
@@ -868,6 +1195,163 @@ namespace DotDesk.App
                 Controls.Add(okButton);
 
                 Shown += (_, _) => _passwordInput.Focus();
+            }
+        }
+
+        private sealed class FixedPasswordDialog : Form
+        {
+            private readonly TextBox _passwordInput;
+
+            public string? FixedPassword { get; private set; }
+
+            public FixedPasswordDialog(string? currentPassword)
+            {
+                Text = "设置固定访问密码";
+                ClientSize = new Size(380, 226);
+                FormBorderStyle = FormBorderStyle.FixedDialog;
+                MaximizeBox = false;
+                MinimizeBox = false;
+                ShowInTaskbar = false;
+                StartPosition = FormStartPosition.CenterParent;
+                Font = new Font("Microsoft YaHei UI", 9F);
+                BackColor = Color.White;
+
+                var title = new System.Windows.Forms.Label
+                {
+                    AutoSize = false,
+                    Text = "固定访问密码",
+                    Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold),
+                    ForeColor = Color.FromArgb(30, 41, 59),
+                    Location = new Point(28, 24),
+                    Size = new Size(324, 28)
+                };
+
+                var hint = new System.Windows.Forms.Label
+                {
+                    AutoSize = false,
+                    Text = "设置后临时密码会固定为该值。清空并保存可恢复随机密码。",
+                    ForeColor = Color.FromArgb(100, 116, 139),
+                    Location = new Point(28, 58),
+                    Size = new Size(324, 42)
+                };
+
+                _passwordInput = new TextBox
+                {
+                    Location = new Point(28, 108),
+                    Size = new Size(324, 27),
+                    MaxLength = 6,
+                    Text = currentPassword ?? "",
+                    TextAlign = HorizontalAlignment.Center
+                };
+
+                var clearButton = new System.Windows.Forms.Button
+                {
+                    Text = "恢复随机",
+                    Location = new Point(108, 164),
+                    Size = new Size(82, 30)
+                };
+
+                var cancelButton = new System.Windows.Forms.Button
+                {
+                    Text = "取消",
+                    DialogResult = DialogResult.Cancel,
+                    Location = new Point(196, 164),
+                    Size = new Size(72, 30)
+                };
+
+                var saveButton = new System.Windows.Forms.Button
+                {
+                    Text = "保存",
+                    DialogResult = DialogResult.OK,
+                    Location = new Point(280, 164),
+                    Size = new Size(72, 30)
+                };
+
+                _passwordInput.KeyPress += (_, e) =>
+                {
+                    if (!char.IsControl(e.KeyChar) && !char.IsLetterOrDigit(e.KeyChar))
+                        e.Handled = true;
+                };
+
+                clearButton.Click += (_, _) =>
+                {
+                    FixedPassword = null;
+                    DialogResult = DialogResult.OK;
+                    Close();
+                };
+
+                saveButton.Click += (_, _) =>
+                {
+                    var normalized = DotDeskSettingsStore.NormalizePassword(_passwordInput.Text);
+                    if (normalized == null)
+                    {
+                        MessageBox.Show(this, "请输入6位字母或数字，或点击“恢复随机”。", "提示",
+                            MessageBoxButtons.OK, MessageBoxIcon.Information);
+                        _passwordInput.Focus();
+                        _passwordInput.SelectAll();
+                        DialogResult = DialogResult.None;
+                        return;
+                    }
+
+                    FixedPassword = normalized;
+                };
+
+                AcceptButton = saveButton;
+                CancelButton = cancelButton;
+                Controls.Add(title);
+                Controls.Add(hint);
+                Controls.Add(_passwordInput);
+                Controls.Add(clearButton);
+                Controls.Add(cancelButton);
+                Controls.Add(saveButton);
+
+                Shown += (_, _) =>
+                {
+                    _passwordInput.Focus();
+                    _passwordInput.SelectAll();
+                };
+            }
+        }
+
+        private sealed class RoundPanel : System.Windows.Forms.Panel
+        {
+            [Browsable(false)]
+            [DesignerSerializationVisibility(DesignerSerializationVisibility.Hidden)]
+            public int Radius { get; set; } = 12;
+
+            protected override void OnSizeChanged(EventArgs e)
+            {
+                base.OnSizeChanged(e);
+                UpdateRegion();
+            }
+
+            protected override void OnPaint(PaintEventArgs e)
+            {
+                e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+                using var brush = new SolidBrush(BackColor);
+                using var path = CreateRoundPath(ClientRectangle, Radius);
+                e.Graphics.FillPath(brush, path);
+            }
+
+            private void UpdateRegion()
+            {
+                if (Width <= 0 || Height <= 0) return;
+                using var path = CreateRoundPath(ClientRectangle, Radius);
+                Region = new Region(path);
+            }
+
+            private static GraphicsPath CreateRoundPath(Rectangle rect, int radius)
+            {
+                var path = new GraphicsPath();
+                var d = Math.Max(1, radius * 2);
+                rect.Width -= 1;
+                rect.Height -= 1;
+                path.AddArc(rect.Left, rect.Top, d, d, 180, 90);
+                path.AddArc(rect.Right - d, rect.Top, d, d, 270, 90);
+                path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
+                path.AddArc(rect.Left, rect.Bottom - d, d, d, 90, 90);
+                path.CloseFigure();
+                return path;
             }
         }
     }

@@ -19,8 +19,30 @@ namespace DotDesk.Client.Input
         [DllImport("user32.dll")]
         private static extern int GetSystemMetrics(int nIndex);
 
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern bool GetCursorInfo(ref CURSORINFO pci);
+
+        [DllImport("user32.dll", SetLastError = true)]
+        private static extern IntPtr LoadCursor(IntPtr hInstance, int lpCursorName);
+
         private const int SM_CXSCREEN = 0;
         private const int SM_CYSCREEN = 1;
+        private const int CURSOR_SHOWING = 0x00000001;
+        private const int IDC_ARROW = 32512;
+        private const int IDC_IBEAM = 32513;
+        private const int IDC_WAIT = 32514;
+        private const int IDC_CROSS = 32515;
+        private const int IDC_UPARROW = 32516;
+        private const int IDC_SIZE = 32640;
+        private const int IDC_ICON = 32641;
+        private const int IDC_SIZENWSE = 32642;
+        private const int IDC_SIZENESW = 32643;
+        private const int IDC_SIZEWE = 32644;
+        private const int IDC_SIZENS = 32645;
+        private const int IDC_SIZEALL = 32646;
+        private const int IDC_NO = 32648;
+        private const int IDC_HAND = 32649;
+        private const int IDC_APPSTARTING = 32650;
 
         // ── 结构体 ───────────────────────────────────────────────────
 
@@ -61,6 +83,15 @@ namespace DotDesk.Client.Input
         [StructLayout(LayoutKind.Sequential)]
         private struct POINT { public int X, Y; }
 
+        [StructLayout(LayoutKind.Sequential)]
+        private struct CURSORINFO
+        {
+            public int cbSize;
+            public int flags;
+            public IntPtr hCursor;
+            public POINT ptScreenPos;
+        }
+
         // ── 常量 ─────────────────────────────────────────────────────
 
         private const uint INPUT_MOUSE = 0;
@@ -78,8 +109,10 @@ namespace DotDesk.Client.Input
         private const uint MOUSEEVENTF_ABSOLUTE = 0x8000;
 
         // 键盘标志
+        private const uint KEYEVENTF_EXTENDEDKEY = 0x0001;
         private const uint KEYEVENTF_KEYUP = 0x0002;
         private const uint KEYEVENTF_UNICODE = 0x0004;
+        private const uint KEYEVENTF_SCANCODE = 0x0008;
 
         // ── 鼠标操作 ─────────────────────────────────────────────────
 
@@ -110,6 +143,30 @@ namespace DotDesk.Client.Input
                     }
                 }
             });
+        }
+
+        public static string GetCurrentCursorKind()
+        {
+            var info = new CURSORINFO { cbSize = Marshal.SizeOf<CURSORINFO>() };
+            if (!GetCursorInfo(ref info) || info.hCursor == IntPtr.Zero || (info.flags & CURSOR_SHOWING) == 0)
+                return "arrow";
+
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_IBEAM)) return "ibeam";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_HAND)) return "hand";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_SIZEWE)) return "sizewe";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_SIZENS)) return "sizens";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_SIZENWSE)) return "sizenwse";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_SIZENESW)) return "sizenesw";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_SIZEALL)) return "sizeall";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_CROSS)) return "cross";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_WAIT)) return "wait";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_APPSTARTING)) return "wait";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_NO)) return "no";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_UPARROW)) return "uparrow";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_SIZE)) return "sizeall";
+            if (info.hCursor == LoadCursor(IntPtr.Zero, IDC_ICON)) return "arrow";
+
+            return "arrow";
         }
 
         /// <summary>鼠标左键按下/抬起</summary>
@@ -152,6 +209,22 @@ namespace DotDesk.Client.Input
                     {
                         wVk = vkCode,
                         dwFlags = down ? 0u : KEYEVENTF_KEYUP,
+                    }
+                }
+            });
+
+        public static void KeyScan(ushort scanCode, bool down, bool extended) =>
+            Send(new INPUT
+            {
+                type = INPUT_KEYBOARD,
+                u = new InputUnion
+                {
+                    ki = new KEYBDINPUT
+                    {
+                        wScan = scanCode,
+                        dwFlags = KEYEVENTF_SCANCODE
+                            | (extended ? KEYEVENTF_EXTENDEDKEY : 0u)
+                            | (down ? 0u : KEYEVENTF_KEYUP),
                     }
                 }
             });

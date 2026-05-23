@@ -10,6 +10,7 @@ namespace DotDesk.Core.Models
     public sealed class OneTimePassword
     {
         private string _password;
+        private string? _fixedPassword;
         private readonly object _lock = new();
 
         public OneTimePassword()
@@ -20,7 +21,7 @@ namespace DotDesk.Core.Models
         /// <summary>当前密码</summary>
         public string Current
         {
-            get { lock (_lock) return _password; }
+            get { lock (_lock) return _fixedPassword ?? _password; }
         }
 
         /// <summary>刷新生成新密码</summary>
@@ -28,8 +29,23 @@ namespace DotDesk.Core.Models
         {
             lock (_lock)
             {
+                // 固定访问密码开启后，刷新按钮保持显示固定密码。
+                if (!string.IsNullOrWhiteSpace(_fixedPassword))
+                    return _fixedPassword;
+
                 _password = Generate();
                 return _password;
+            }
+        }
+
+        /// <summary>设置固定访问密码；传入 null/非法值则恢复一次性密码模式</summary>
+        public void SetFixed(string? password)
+        {
+            lock (_lock)
+            {
+                _fixedPassword = DotDeskSettingsStore.NormalizePassword(password);
+                if (_fixedPassword == null)
+                    _password = Generate();
             }
         }
 
@@ -37,7 +53,7 @@ namespace DotDesk.Core.Models
         public bool Verify(string input)
         {
             var clean = input?.Replace("-", "").Replace(" ", "").Trim().ToLowerInvariant();
-            lock (_lock) return clean == _password;
+            lock (_lock) return clean == (_fixedPassword ?? _password);
         }
 
         // ── 生成6位随机密码（数字+小写字母，去掉易混淆字符）────────

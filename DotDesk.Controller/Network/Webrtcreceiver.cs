@@ -6,6 +6,8 @@ using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using System;
 using System.Collections.Generic;
+using System.Text;
+using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -22,6 +24,7 @@ namespace DotDesk.Controller.Network
         public event Action<string>? OnConnectionStatus;
         public event Action<string>? OnLog;
         public event Action<byte[], int, int>? OnVideoFrame;
+        public event Action<string>? OnRemoteCursorChanged;
 
         public bool IsConnected =>
             _mediaReady || _pc?.connectionState == RTCPeerConnectionState.connected;
@@ -297,6 +300,24 @@ namespace DotDesk.Controller.Network
                 channel.onclose += () =>
                 {
                     Log("DataChannel 已关闭");
+                };
+
+                channel.onmessage += (dc, proto, data) =>
+                {
+                    try
+                    {
+                        var json = Encoding.UTF8.GetString(data);
+                        var node = JsonNode.Parse(json);
+                        if (node?["type"]?.GetValue<string>() == "cursor")
+                        {
+                            var cursor = node["cursor"]?.GetValue<string>() ?? "arrow";
+                            OnRemoteCursorChanged?.Invoke(cursor);
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Log("处理 DataChannel 消息失败：" + ex.Message);
+                    }
                 };
             };
 
@@ -641,19 +662,19 @@ namespace DotDesk.Controller.Network
             {
                 servers.Add(new RTCIceServer
                 {
-                    urls = "turn:185.200.65.254:3478?transport=udp",
+                    urls = "turn:159.75.93.74:3478?transport=udp",
                     username = "dotdesk",
                     credential = "DotDesk2025",
                 });
                 servers.Add(new RTCIceServer
                 {
-                    urls = "turn:185.200.65.254:3478?transport=tcp",
+                    urls = "turn:159.75.93.74:3478?transport=tcp",
                     username = "dotdesk",
                     credential = "DotDesk2025",
                 });
                 servers.Add(new RTCIceServer
                 {
-                    urls = "turns:185.200.65.254:5349?transport=tcp",
+                    urls = "turns:159.75.93.74:5349?transport=tcp",
                     username = "dotdesk",
                     credential = "DotDesk2025",
                 });

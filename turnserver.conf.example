@@ -5,7 +5,7 @@ listening-port=3478
 tls-listening-port=5349
 listening-ip=0.0.0.0
 relay-ip=0.0.0.0
-external-ip=185.200.65.254
+external-ip=159.75.93.74
 
 realm=dotdesk
 server-name=dotdesk-turn

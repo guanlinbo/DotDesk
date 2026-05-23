@@ -29,6 +29,9 @@ namespace DotDesk.Client
         /// <summary>刷新生成新密码</summary>
         public string RefreshPassword() => _pusher?.RefreshPassword() ?? "------";
 
+        /// <summary>设置固定访问密码；传入 null 表示恢复随机一次性密码</summary>
+        public string SetFixedPassword(string? password) => _pusher?.SetFixedPassword(password) ?? "------";
+
         // ── 内部 ─────────────────────────────────────────────────────
         private WebRtcPusher? _pusher;
         private CaptureAndPushPipeline? _pipeline;
@@ -77,6 +80,8 @@ namespace DotDesk.Client
                 };
 
                 await _pusher.StartAsync(screenWidth, screenHeight, fps);
+                if (!_pusher.IsSignalingConnected)
+                    throw new InvalidOperationException("无法连接信令服务器，请检查网络设置");
 
                 SetStatus("等待控制端连接...");
                 AppLogger.Log("AutoStart", "信令已连接，等待控制端");
@@ -84,6 +89,8 @@ namespace DotDesk.Client
             catch (Exception ex)
             {
                 AppLogger.Log("AutoStart", $"启动失败: {ex.Message}");
+                try { _pusher?.Dispose(); } catch { }
+                _pusher = null;
                 SetStatus($"连接失败: {ex.Message}");
             }
         }

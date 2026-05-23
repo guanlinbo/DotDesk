@@ -42,14 +42,14 @@ namespace DotDesk.App
             titleBar.Name = "titleBar";
             titleBar.ShowButton = false;
             titleBar.ShowIcon = false;
-            titleBar.Size = new Size(900, 56);
+            titleBar.Size = new Size(1000, 60);
             titleBar.TabIndex = 0;
             titleBar.Text = "";
             // 
             // closeWindowButton
             // 
             closeWindowButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            closeWindowButton.Location = new Point(852, 12);
+            closeWindowButton.Location = new Point(952, 14);
             closeWindowButton.Name = "closeWindowButton";
             closeWindowButton.Size = new Size(34, 32);
             closeWindowButton.TabIndex = 6;
@@ -59,7 +59,7 @@ namespace DotDesk.App
             // maximizeWindowButton
             // 
             maximizeWindowButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            maximizeWindowButton.Location = new Point(812, 12);
+            maximizeWindowButton.Location = new Point(912, 14);
             maximizeWindowButton.Name = "maximizeWindowButton";
             maximizeWindowButton.Size = new Size(34, 32);
             maximizeWindowButton.TabIndex = 5;
@@ -69,7 +69,7 @@ namespace DotDesk.App
             // minimizeWindowButton
             // 
             minimizeWindowButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            minimizeWindowButton.Location = new Point(772, 12);
+            minimizeWindowButton.Location = new Point(872, 14);
             minimizeWindowButton.Name = "minimizeWindowButton";
             minimizeWindowButton.Size = new Size(34, 32);
             minimizeWindowButton.TabIndex = 4;
@@ -79,7 +79,7 @@ namespace DotDesk.App
             // menuButton
             // 
             menuButton.Anchor = AnchorStyles.Top | AnchorStyles.Right;
-            menuButton.Location = new Point(724, 12);
+            menuButton.Location = new Point(824, 14);
             menuButton.Name = "menuButton";
             menuButton.Size = new Size(34, 32);
             menuButton.TabIndex = 3;
@@ -113,21 +113,20 @@ namespace DotDesk.App
             // contentPanel
             // 
             contentPanel.Dock = DockStyle.Fill;
-            contentPanel.Location = new Point(0, 56);
+            contentPanel.Location = new Point(0, 60);
             contentPanel.Margin = new Padding(0);
             contentPanel.Name = "contentPanel";
-            contentPanel.Size = new Size(900, 514);
+            contentPanel.Size = new Size(1000, 560);
             contentPanel.TabIndex = 1;
             // 
             // manUi
             // 
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
-            ClientSize = new Size(900, 570);
+            ClientSize = new Size(1000, 620);
             Controls.Add(contentPanel);
             Controls.Add(titleBar);
-            FormBorderStyle = FormBorderStyle.None;
-            MinimumSize = new Size(900, 570);
+            MinimumSize = new Size(1000, 620);
             Name = "manUi";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "DotDesk";
