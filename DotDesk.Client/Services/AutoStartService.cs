@@ -1,7 +1,7 @@
 ﻿using System;
 using System.Threading.Tasks;
-using DotDesk.Core;
-using DotDesk.Core.Models;
+using DotDesk.Core.Logging;
+using DotDesk.Core.Utils;
 using DotDesk.Client.Network;
 
 namespace DotDesk.Client
@@ -20,7 +20,7 @@ namespace DotDesk.Client
         public event Action<float>? OnFpsUpdate;      // 推流帧率
 
         // ── 属性 ─────────────────────────────────────────────────────
-        public string DeviceCode { get; } = DotDesk.Core.Models.DeviceCode.GetFormatted();
+        public string DeviceCode { get; } = DotDesk.Core.Utils.DeviceCode.GetFormatted();
         public bool IsP2PConnected => _pusher?.IsConnected ?? false;
 
         /// <summary>当前一次性密码（显示在被控端界面）</summary>
@@ -57,7 +57,7 @@ namespace DotDesk.Client
 
             try
             {
-                var code = DotDesk.Core.Models.DeviceCode.Get();
+                var code = DotDesk.Core.Utils.DeviceCode.Get();
                 _pusher = new WebRtcPusher(_serverUrl, code);
 
                 _pusher.OnLog += msg => OnLog?.Invoke(msg);

@@ -1,7 +1,8 @@
 ﻿using System;
 using System.Security.Cryptography;
+using DotDesk.Core.Config;
 
-namespace DotDesk.Core.Models
+namespace DotDesk.Core.Security
 {
     /// <summary>
     /// 一次性临时密码（6位随机字母数字）

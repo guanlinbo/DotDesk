@@ -1,7 +1,7 @@
 ﻿using System;
 using System.IO;
 
-namespace DotDesk.Core
+namespace DotDesk.Core.Logging
 {
     /// <summary>
     /// 全局日志

@@ -3,7 +3,7 @@ using Sdcb.FFmpeg.Codecs;
 using Sdcb.FFmpeg.Raw;
 using Sdcb.FFmpeg.Swscales;
 using Sdcb.FFmpeg.Utils;
-using DotDesk.Core;
+using DotDesk.Core.Logging;
 
 namespace DotDesk.Controller.Network
 {

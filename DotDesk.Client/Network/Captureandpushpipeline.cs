@@ -3,7 +3,7 @@ using System;
 using System.Diagnostics;
 using System.Threading;
 using DotDesk.Client.Native;
-using DotDesk.Core;
+using DotDesk.Core.Logging;
 
 namespace DotDesk.Client.Network
 {
@@ -124,34 +124,34 @@ namespace DotDesk.Client.Network
 
         private void Log(string msg) => OnLog?.Invoke($"[Pipeline] {msg}");
 
-        private static byte[] PrepareStreamFrame(byte[] bgra, int width, int height, out int outW, out int outH)
+        private static byte[] PrepareStreamFrame(byte[] bgra, int width, int height, out int ostW, out int ostH)
         {
-            outW = width;
-            outH = height;
+            ostW = width;
+            ostH = height;
 
             if (width > MaxStreamWidth)
             {
                 double scale = MaxStreamWidth / (double)width;
-                outW = MaxStreamWidth;
-                outH = Math.Max(2, (int)Math.Round(height * scale));
+                ostW = MaxStreamWidth;
+                ostH = Math.Max(2, (int)Math.Round(height * scale));
             }
 
-            outW &= ~1;
-            outH &= ~1;
+            ostW &= ~1;
+            ostH &= ~1;
 
-            if (outW == width && outH == height)
+            if (ostW == width && ostH == height)
                 return bgra;
 
-            var resized = new byte[outW * outH * 4];
+            var resized = new byte[ostW * ostH * 4];
 
-            for (int y = 0; y < outH; y++)
+            for (int y = 0; y < ostH; y++)
             {
-                int srcY = y * height / outH;
-                for (int x = 0; x < outW; x++)
+                int srcY = y * height / ostH;
+                for (int x = 0; x < ostW; x++)
                 {
-                    int srcX = x * width / outW;
+                    int srcX = x * width / ostW;
                     int src = (srcY * width + srcX) * 4;
-                    int dst = (y * outW + x) * 4;
+                    int dst = (y * ostW + x) * 4;
 
                     resized[dst] = bgra[src];
                     resized[dst + 1] = bgra[src + 1];

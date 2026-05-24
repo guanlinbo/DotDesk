@@ -1,12 +1,15 @@
 ﻿using DotDesk.Client.Encoder;
 using DotDesk.Client.Input;
-using DotDesk.Core;
+using DotDesk.Core.Config;
+using DotDesk.Core.Logging;
 using DotDesk.Core.Network;
 using DotDesk.Core.Protocol;
+using DotDesk.Core.Security;
 using SIPSorcery.Media;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Text;
@@ -38,15 +41,18 @@ namespace DotDesk.Client.Network
         }
 
         private readonly SignalingClient _sig;
-        private readonly DotDesk.Core.Models.OneTimePassword _otp = new();
+        private readonly OneTimePassword _otp = new();
         private readonly List<RTCIceCandidateInit> _pendingCandidates = new();
+        private readonly ConcurrentQueue<EncodedVideoFrame> _sendQueue = new();
         private readonly object _encoderLock = new();
         private readonly object _sendBudgetLock = new();
         private readonly SemaphoreSlim _turnFallbackLock = new(1, 1);
+        private readonly SemaphoreSlim _sendSignal = new(0);
 
         private RTCPeerConnection? _pc;
         private RTCDataChannel? _dataChannel;
         private H264Encoder? _encoder;
+        private CancellationTokenSource? _sendLoopCts;
 
         private bool _disposed;
         private bool _remoteDescSet;
@@ -67,11 +73,14 @@ namespace DotDesk.Client.Network
         private int _sentVideoFrames;
         private int _droppedRawFrames;
         private int _droppedEncodedFrames;
+        private int _queuedEncodedFrames;
         private long _lastRawFrameTick;
         private long _lastKeyFrameRequestTick;
         private long _lastPeriodicKeyFrameTick;
         private long _sendBudgetWindowTick;
         private int _sendBudgetBytes;
+
+        private sealed record EncodedVideoFrame(byte[] Nal, bool IsKeyFrame, long Pts);
 
         public WebRtcPusher(string signalingServerUrl, string deviceCode)
         {
@@ -129,6 +138,8 @@ namespace DotDesk.Client.Network
             _sig.AutoReconnect = true;
 
             await _sig.ConnectAsync();
+            if (!_sig.IsConnected)
+                throw new InvalidOperationException("无法连接信令服务器，请检查网络设置");
 
             Log("被控端已启动，等待控制端连接...");
         }
@@ -219,32 +230,56 @@ namespace DotDesk.Client.Network
 
                 _encoder.OnEncoded += (nal, isKey, pts) =>
                 {
-                    try
-                    {
-                        if (_disposed) return;
-                        if (!_authPassed) return;
-                        var pc = _pc;
-                        if (pc == null) return;
-                        if (!_mediaReady && pc.connectionState != RTCPeerConnectionState.connected) return;
-                        if (!ShouldSendEncodedFrame(nal.Length, isKey))
-                        {
-                            _droppedEncodedFrames++;
-                            if (_droppedEncodedFrames == 1 || _droppedEncodedFrames % 90 == 0)
-                                Log($"发送队列节流：丢弃非关键帧 {_droppedEncodedFrames} 个");
-                            return;
-                        }
-
-                        pc.SendVideo((uint)(pts * 90), nal);
-                        _sentVideoFrames++;
-                        if (_sentVideoFrames <= 3 || _sentVideoFrames % 90 == 0)
-                            Log($"发送视频帧: {nal.Length} bytes key={isKey}");
-                    }
-                    catch (Exception ex)
-                    {
-                        Log($"发送视频失败: {ex.Message}");
-                    }
+                    QueueEncodedFrame(nal, isKey, pts);
                 };
             }
+        }
+
+        private void QueueEncodedFrame(byte[] nal, bool isKeyFrame, long pts)
+        {
+            if (_disposed) return;
+            if (!_authPassed) return;
+            var pc = _pc;
+            if (pc == null) return;
+            if (!_mediaReady && pc.connectionState != RTCPeerConnectionState.connected) return;
+            if (!ShouldSendEncodedFrame(nal.Length, isKeyFrame))
+            {
+                _droppedEncodedFrames++;
+                if (_droppedEncodedFrames == 1 || _droppedEncodedFrames % 90 == 0)
+                    Log($"发送队列节流：丢弃非关键帧 {_droppedEncodedFrames} 个");
+                return;
+            }
+
+            int maxQueued = isKeyFrame ? 2 : 6;
+            if (Volatile.Read(ref _queuedEncodedFrames) >= maxQueued)
+            {
+                if (!isKeyFrame)
+                {
+                    _droppedEncodedFrames++;
+                    if (_droppedEncodedFrames == 1 || _droppedEncodedFrames % 90 == 0)
+                        Log($"发送队列积压：丢弃非关键帧 {_droppedEncodedFrames} 个");
+                    return;
+                }
+
+                DropQueuedFramesForKeyFrame();
+            }
+
+            _sendQueue.Enqueue(new EncodedVideoFrame(nal, isKeyFrame, pts));
+            Interlocked.Increment(ref _queuedEncodedFrames);
+            try { _sendSignal.Release(); } catch { }
+        }
+
+        private void DropQueuedFramesForKeyFrame()
+        {
+            int dropped = 0;
+            while (_sendQueue.TryDequeue(out _))
+            {
+                Interlocked.Decrement(ref _queuedEncodedFrames);
+                dropped++;
+            }
+
+            if (dropped > 0)
+                Log($"关键帧到达：清理发送积压 {dropped} 帧");
         }
 
         private void OnAuthReceived(string password)
@@ -402,6 +437,7 @@ namespace DotDesk.Client.Network
             {
                 iceServers = CreateIceServers(allowRelay)
             });
+            StartVideoSendLoop(attemptId);
 
             var videoTrack = new MediaStreamTrack(
                 new List<VideoFormat>
@@ -428,6 +464,7 @@ namespace DotDesk.Client.Network
             _dataChannel.onopen += () =>
             {
                 Log("DataChannel 已开启");
+                TrySendProtocolMessage(DotDeskMessageCodec.ConnectionStatus("dataChannelOpen", "控制通道已开启"));
             };
 
             _dataChannel.onclose += () =>
@@ -440,6 +477,13 @@ namespace DotDesk.Client.Network
                 try
                 {
                     string json = Encoding.UTF8.GetString(data);
+                    var message = DotDeskMessageCodec.Parse(json);
+                    if (message.MessageType == DotDeskMessageType.Ping)
+                    {
+                        TrySendProtocolMessage(DotDeskMessageCodec.Pong());
+                        return;
+                    }
+
                     InputHandler.Handle(json);
                 }
                 catch (Exception ex)
@@ -608,9 +652,26 @@ namespace DotDesk.Client.Network
 
                 _lastCursorKind = cursorKind;
                 _lastCursorTick = now;
-                _dataChannel.send($"{{\"type\":\"cursor\",\"cursor\":\"{cursorKind}\"}}");
+                TrySendProtocolMessage(DotDeskMessageCodec.CursorChanged(cursorKind));
             }
             catch { }
+        }
+
+        private bool TrySendProtocolMessage(string json)
+        {
+            try
+            {
+                if (_dataChannel?.readyState != RTCDataChannelState.open)
+                    return false;
+
+                _dataChannel.send(json);
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Log($"发送协议消息失败: {ex.Message}");
+                return false;
+            }
         }
 
         private void ResetPc()
@@ -627,6 +688,8 @@ namespace DotDesk.Client.Network
             _sendBudgetWindowTick = 0;
             _sendBudgetBytes = 0;
             _forceNextKeyFrame = true;
+            StopVideoSendLoop();
+            DrainSendQueue();
 
             lock (_pendingCandidates)
             {
@@ -675,12 +738,86 @@ namespace DotDesk.Client.Network
             _connectedReported = true;
             Log(_allowRelay ? "最终连接路径: TURN relay" : "最终连接路径: P2P");
             OnConnectionStatus?.Invoke(_allowRelay ? "中继连接" : "P2P成功");
+            TrySendProtocolMessage(DotDeskMessageCodec.ConnectionStatus(
+                _allowRelay ? "relayConnected" : "p2pConnected",
+                _allowRelay ? "TURN 中继已连接" : "P2P 已连接"));
             OnConnected?.Invoke();
 
             Task.Delay(300).ContinueWith(_ =>
             {
                 HandleRequestKeyFrame();
             });
+        }
+
+        private void StartVideoSendLoop(int attemptId)
+        {
+            StopVideoSendLoop();
+            _sendLoopCts = new CancellationTokenSource();
+            var token = _sendLoopCts.Token;
+
+            Task.Run(async () =>
+            {
+                while (!token.IsCancellationRequested && !_disposed && !_disconnecting)
+                {
+                    try
+                    {
+                        await _sendSignal.WaitAsync(token);
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+
+                    if (attemptId != _connectionAttemptId)
+                        break;
+
+                    while (_sendQueue.TryDequeue(out var frame))
+                    {
+                        Interlocked.Decrement(ref _queuedEncodedFrames);
+                        if (token.IsCancellationRequested || _disposed || _disconnecting)
+                            return;
+
+                        var pc = _pc;
+                        if (pc == null)
+                            return;
+                        if (!_mediaReady && pc.connectionState != RTCPeerConnectionState.connected)
+                            continue;
+
+                        try
+                        {
+                            pc.SendVideo((uint)(frame.Pts * 90), frame.Nal);
+                            int sent = ++_sentVideoFrames;
+                            if (frame.IsKeyFrame || sent <= 3 || sent % 90 == 0)
+                                Log($"发送视频帧: {frame.Nal.Length} bytes key={frame.IsKeyFrame}, queue={Volatile.Read(ref _queuedEncodedFrames)}");
+                        }
+                        catch (Exception ex)
+                        {
+                            Log($"发送视频失败: {ex.Message}");
+                            return;
+                        }
+                    }
+                }
+            }, token);
+        }
+
+        private void StopVideoSendLoop()
+        {
+            try
+            {
+                _sendLoopCts?.Cancel();
+                _sendLoopCts?.Dispose();
+            }
+            catch { }
+            finally
+            {
+                _sendLoopCts = null;
+            }
+        }
+
+        private void DrainSendQueue()
+        {
+            while (_sendQueue.TryDequeue(out _)) { }
+            Interlocked.Exchange(ref _queuedEncodedFrames, 0);
         }
 
         private bool ShouldAcceptRawFrame()

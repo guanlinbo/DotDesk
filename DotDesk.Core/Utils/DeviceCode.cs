@@ -3,7 +3,7 @@ using System.Management;
 using System.Security.Cryptography;
 using System.Text;
 
-namespace DotDesk.Core.Models
+namespace DotDesk.Core.Utils
 {
     /// <summary>
     /// 设备码：多维硬件指纹 → SHA256 → 10位纯数字

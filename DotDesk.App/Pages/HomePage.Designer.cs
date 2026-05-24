@@ -84,7 +84,7 @@ namespace DotDesk.App
             sidebarPanel.Location = new Point(0, 0);
             sidebarPanel.Margin = new Padding(0);
             sidebarPanel.Name = "sidebarPanel";
-            sidebarPanel.Size = new Size(330, 720);
+            sidebarPanel.Size = new Size(330, 560);
             sidebarPanel.TabIndex = 0;
             // 
             // securityCardPanel
@@ -278,7 +278,7 @@ namespace DotDesk.App
             mainContentPanel.Location = new Point(330, 0);
             mainContentPanel.Margin = new Padding(0);
             mainContentPanel.Name = "mainContentPanel";
-            mainContentPanel.Size = new Size(910, 720);
+            mainContentPanel.Size = new Size(670, 560);
             mainContentPanel.TabIndex = 1;
             // 
             // settingsTipPanel
@@ -465,7 +465,7 @@ namespace DotDesk.App
             Controls.Add(sidebarPanel);
             Margin = new Padding(0);
             Name = "HomePage";
-            Size = new Size(1240, 720);
+            Size = new Size(1000, 560);
             sidebarPanel.ResumeLayout(false);
             securityCardPanel.ResumeLayout(false);
             deviceInfoCardPanel.ResumeLayout(false);

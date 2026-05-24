@@ -2,7 +2,9 @@
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Threading;
 using System.Windows.Forms;
+using DotDesk.Core.Protocol;
 using DotDesk.Controller.Network;
 
 namespace DotDesk.App
@@ -68,8 +70,11 @@ namespace DotDesk.App
         private bool _firstFrameRendered;
         private bool _closing;
         private bool _closeConfirmed;
+        private int _renderPending;
         private long _lastMouseMoveTick;
         private bool _remoteInputEnabled;
+        private Bitmap? _latestBitmap;
+        private readonly object _renderLock = new();
         private readonly LowLevelKeyboardProc _keyboardProc;
         private IntPtr _keyboardHook;
         private readonly HashSet<uint> _downKeys = new();
@@ -167,7 +172,7 @@ namespace DotDesk.App
                 SendMouseButton(e.Button, down: true);
             };
             _pic.MouseUp += (_, e) => SendMouseButton(e.Button, down: false);
-            _pic.MouseWheel += (_, e) => SendInputJson($"{{\"type\":\"wheel\",\"delta\":{e.Delta}}}");
+            _pic.MouseWheel += (_, e) => SendProtocolMessage(DotDeskMessageCodec.MouseWheel(e.Delta));
             _pic.MouseEnter += (_, _) => _pic.Focus();
             KeyDown += RemoteDesktopControl_KeyDown;
             KeyUp += RemoteDesktopControl_KeyUp;
@@ -360,27 +365,66 @@ namespace DotDesk.App
                     return;
                 }
 
-                if (_pic.InvokeRequired)
-                {
-                    _pic.BeginInvoke(new Action(() =>
-                    {
-                        if (_closing)
-                        {
-                            bmp.Dispose();
-                            return;
-                        }
-
-                        SetPicture(bmp);
-                    }));
-                }
-                else
-                {
-                    SetPicture(bmp);
-                }
+                QueueRenderFrame(bmp);
             }
             catch (Exception ex)
             {
                 Console.WriteLine(ex);
+            }
+        }
+
+        private void QueueRenderFrame(Bitmap bmp)
+        {
+            if (_closing || _pic.IsDisposed)
+            {
+                bmp.Dispose();
+                return;
+            }
+
+            Bitmap? old;
+            lock (_renderLock)
+            {
+                old = _latestBitmap;
+                _latestBitmap = bmp;
+            }
+            old?.Dispose();
+
+            if (Interlocked.Exchange(ref _renderPending, 1) == 0)
+            {
+                if (_pic.InvokeRequired)
+                    _pic.BeginInvoke(new Action(DrainRenderFrame));
+                else
+                    DrainRenderFrame();
+            }
+        }
+
+        private void DrainRenderFrame()
+        {
+            Bitmap? bmp;
+            lock (_renderLock)
+            {
+                bmp = _latestBitmap;
+                _latestBitmap = null;
+            }
+
+            if (bmp != null)
+            {
+                if (_closing || _pic.IsDisposed)
+                    bmp.Dispose();
+                else
+                    SetPicture(bmp);
+            }
+
+            lock (_renderLock)
+            {
+                if (_latestBitmap != null)
+                {
+                    if (!_closing && !_pic.IsDisposed)
+                        _pic.BeginInvoke(new Action(DrainRenderFrame));
+                    return;
+                }
+
+                Interlocked.Exchange(ref _renderPending, 0);
             }
         }
 
@@ -423,8 +467,7 @@ namespace DotDesk.App
                 return;
 
             _lastMouseMoveTick = now;
-            SendInputJson(FormattableString.Invariant(
-                $"{{\"type\":\"mousemove\",\"x\":{x:0.######},\"y\":{y:0.######}}}"));
+            SendProtocolMessage(DotDeskMessageCodec.MouseMove(x, y));
         }
 
         private void SendMouseButton(MouseButtons button, bool down)
@@ -438,7 +481,9 @@ namespace DotDesk.App
             };
             if (remoteButton < 0) return;
 
-            SendInputJson($"{{\"type\":\"{(down ? "mousedown" : "mouseup")}\",\"button\":{remoteButton}}}");
+            SendProtocolMessage(down
+                ? DotDeskMessageCodec.MouseDown(remoteButton)
+                : DotDeskMessageCodec.MouseUp(remoteButton));
         }
 
         private void RemoteDesktopControl_KeyDown(object? sender, KeyEventArgs e)
@@ -447,7 +492,7 @@ namespace DotDesk.App
             // 低级 Hook 只接管 Win/Alt 这类系统键，避免把普通打字吞掉。
             if (!_remoteInputEnabled || _closing || e.KeyCode == Keys.None || !IsRemoteKeyboardActive()) return;
 
-            SendInputJson($"{{\"type\":\"keydown\",\"keyCode\":{(int)e.KeyCode}}}");
+            SendProtocolMessage(DotDeskMessageCodec.KeyDown((int)e.KeyCode));
             e.Handled = true;
             e.SuppressKeyPress = true;
         }
@@ -456,7 +501,7 @@ namespace DotDesk.App
         {
             if (!_remoteInputEnabled || _closing || e.KeyCode == Keys.None || !IsRemoteKeyboardActive()) return;
 
-            SendInputJson($"{{\"type\":\"keyup\",\"keyCode\":{(int)e.KeyCode}}}");
+            SendProtocolMessage(DotDeskMessageCodec.KeyUp((int)e.KeyCode));
             e.Handled = true;
             e.SuppressKeyPress = true;
         }
@@ -501,12 +546,12 @@ namespace DotDesk.App
             return new Rectangle(0, (_pic.Height - fullHeight) / 2, fullWidth, fullHeight);
         }
 
-        private void SendInputJson(string json)
+        private void SendProtocolMessage(string json)
         {
             if (!_remoteInputEnabled || _closing)
                 return;
 
-            _receiver.SendInput(json);
+            _receiver.SendProtocolMessage(json);
         }
 
         private void ApplyRemoteCursor(string cursorKind)
@@ -581,13 +626,15 @@ namespace DotDesk.App
                 _downKeys.Contains(VkControl) &&
                 _downKeys.Contains(VkMenu))
             {
-                SendInputJson("{\"type\":\"secureAttention\"}");
+                SendProtocolMessage(DotDeskMessageCodec.SecureAttention());
                 return (IntPtr)1;
             }
 
             // 远控窗口激活后所有按键都发给被控端，包括 F1/F2/F5 等功能键。
             // 这里只发 keyCode，不走 scanCode，避免不同键盘布局下普通打字失效。
-            SendInputJson($"{{\"type\":\"{(keyDown ? "keydown" : "keyup")}\",\"keyCode\":{info.vkCode}}}");
+            SendProtocolMessage(keyDown
+                ? DotDeskMessageCodec.KeyDown((int)info.vkCode)
+                : DotDeskMessageCodec.KeyUp((int)info.vkCode));
             return (IntPtr)1;
         }
 
@@ -659,6 +706,11 @@ namespace DotDesk.App
             Image? old = _pic.Image;
             _pic.Image = null;
             old?.Dispose();
+            lock (_renderLock)
+            {
+                _latestBitmap?.Dispose();
+                _latestBitmap = null;
+            }
 
             base.OnFormClosing(e);
         }

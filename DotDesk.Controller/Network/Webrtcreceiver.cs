@@ -1,4 +1,4 @@
-﻿using DotDesk.Core;
+﻿using DotDesk.Core.Logging;
 using DotDesk.Core.Network;
 using DotDesk.Core.Protocol;
 using SIPSorcery.Media;
@@ -7,7 +7,6 @@ using SIPSorceryMedia.Abstractions;
 using System;
 using System.Collections.Generic;
 using System.Text;
-using System.Text.Json.Nodes;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 
@@ -107,6 +106,11 @@ namespace DotDesk.Controller.Network
         }
 
         public void SendInput(string json)
+        {
+            SendProtocolMessage(json);
+        }
+
+        public void SendProtocolMessage(string json)
         {
             try
             {
@@ -293,7 +297,7 @@ namespace DotDesk.Controller.Network
 
                     Task.Delay(200).ContinueWith(_ =>
                     {
-                        SendInput("{\"type\":\"requestKeyFrame\"}");
+                        SendProtocolMessage(DotDeskMessageCodec.RequestKeyFrame());
                     });
                 };
 
@@ -307,11 +311,26 @@ namespace DotDesk.Controller.Network
                     try
                     {
                         var json = Encoding.UTF8.GetString(data);
-                        var node = JsonNode.Parse(json);
-                        if (node?["type"]?.GetValue<string>() == "cursor")
+                        var message = DotDeskMessageCodec.Parse(json);
+                        if (message.MessageType == DotDeskMessageType.CursorChanged)
                         {
-                            var cursor = node["cursor"]?.GetValue<string>() ?? "arrow";
-                            OnRemoteCursorChanged?.Invoke(cursor);
+                            OnRemoteCursorChanged?.Invoke(message.Cursor ?? "arrow");
+                        }
+                        else if (message.MessageType == DotDeskMessageType.ConnectionStatus)
+                        {
+                            var statusText = string.IsNullOrWhiteSpace(message.Text)
+                                ? message.Status ?? "远程状态更新"
+                                : message.Text;
+                            Log($"远端状态: {statusText}");
+                            OnConnectionStatus?.Invoke(statusText);
+                        }
+                        else if (message.MessageType == DotDeskMessageType.Ping)
+                        {
+                            SendProtocolMessage(DotDeskMessageCodec.Pong());
+                        }
+                        else if (message.MessageType == DotDeskMessageType.Pong)
+                        {
+                            Log("收到远端 Pong");
                         }
                     }
                     catch (Exception ex)
@@ -349,7 +368,7 @@ namespace DotDesk.Controller.Network
                 {
                     Log("H264 解包/解码失败：" + ex.Message);
                     _h264Depacketizer?.Reset();
-                    SendInput("{\"type\":\"requestKeyFrame\"}");
+                    SendProtocolMessage(DotDeskMessageCodec.RequestKeyFrame());
                 }
             };
 
@@ -585,7 +604,7 @@ namespace DotDesk.Controller.Network
                     if (_disposed || _disconnecting) return;
                     if (_firstFrameReceived && DateTime.UtcNow - _lastFrameAt < TimeSpan.FromSeconds(2)) return;
 
-                    SendInput("{\"type\":\"requestKeyFrame\"}");
+                    SendProtocolMessage(DotDeskMessageCodec.RequestKeyFrame());
                     Log(i == 0 ? "等待视频帧，已请求关键帧" : "仍未收到可解码视频帧，继续请求关键帧");
 
                     await Task.Delay(i < 6 ? 700 : 1200);
@@ -608,7 +627,7 @@ namespace DotDesk.Controller.Network
                         DateTime.UtcNow - _lastFrameAt > TimeSpan.FromSeconds(3))
                     {
                         Log("视频帧长时间未刷新，重新请求关键帧");
-                        SendInput("{\"type\":\"requestKeyFrame\"}");
+                        SendProtocolMessage(DotDeskMessageCodec.RequestKeyFrame());
                     }
                 }
             });

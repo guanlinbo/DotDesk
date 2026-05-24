@@ -1,6 +1,6 @@
 namespace DotDesk.App
 {
-    partial class manUi
+    partial class MainForm
     {
         private System.ComponentModel.IContainer components = null;
 
@@ -119,7 +119,7 @@ namespace DotDesk.App
             contentPanel.Size = new Size(1000, 560);
             contentPanel.TabIndex = 1;
             // 
-            // manUi
+            // MainForm
             // 
             AutoScaleDimensions = new SizeF(7F, 17F);
             AutoScaleMode = AutoScaleMode.Font;
@@ -127,7 +127,7 @@ namespace DotDesk.App
             Controls.Add(contentPanel);
             Controls.Add(titleBar);
             MinimumSize = new Size(1000, 620);
-            Name = "manUi";
+            Name = "MainForm";
             StartPosition = FormStartPosition.CenterScreen;
             Text = "DotDesk";
             titleBar.ResumeLayout(false);

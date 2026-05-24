@@ -1,22 +1,16 @@
-﻿using DotDesk.Core;
+﻿using DotDesk.Core.Logging;
+using DotDesk.Core.Protocol;
 using System;
-using System.Text.Json;
-using System.Text.Json.Nodes;
 
 namespace DotDesk.Client.Input
 {
     /// <summary>
-    /// 解析控制端发来的 DataChannel JSON 指令，调用 InputSimulator
-    ///
-    /// 消息格式：
-    ///   鼠标移动： { "type": "mousemove", "x": 0.5, "y": 0.3 }
-    ///   鼠标按键： { "type": "mousedown"/"mouseup", "button": 0/1/2 }
-    ///   滚轮：     { "type": "wheel", "delta": 120 }
-    ///   键盘：     { "type": "keydown"/"keyup", "keyCode": 65 }
+    /// 解析控制端通过 DataChannel 发来的协议消息，并调用 InputSimulator 注入输入。
+    /// 后续剪贴板、文件传输、权限请求都继续走 DotDeskMessageCodec。
     /// </summary>
     public static class InputHandler
     {
-        /// <summary>收到请求关键帧消息时触发</summary>
+        /// <summary>收到请求关键帧消息时触发。</summary>
         public static event Action? OnRequestKeyFrame;
         public static event Action<string>? OnCursorChanged;
 
@@ -24,25 +18,19 @@ namespace DotDesk.Client.Input
         {
             try
             {
-                var node = JsonNode.Parse(json);
-                if (node == null) return;
+                var message = DotDeskMessageCodec.Parse(json);
 
-                var type = node["type"]?.GetValue<string>();
-
-                switch (type)
+                switch (message.MessageType)
                 {
-                    case "mousemove":
-                        var x = node["x"]?.GetValue<double>() ?? 0;
-                        var y = node["y"]?.GetValue<double>() ?? 0;
-                        InputSimulator.MouseMove(x, y);
+                    case DotDeskMessageType.MouseMove:
+                        InputSimulator.MouseMove(message.X, message.Y);
                         OnCursorChanged?.Invoke(InputSimulator.GetCurrentCursorKind());
                         break;
 
-                    case "mousedown":
-                    case "mouseup":
-                        var btn = node["button"]?.GetValue<int>() ?? 0;
-                        var down = type == "mousedown";
-                        switch (btn)
+                    case DotDeskMessageType.MouseDown:
+                    case DotDeskMessageType.MouseUp:
+                        var down = message.MessageType == DotDeskMessageType.MouseDown;
+                        switch (message.Button)
                         {
                             case 0: InputSimulator.MouseLeft(down); break;
                             case 1: InputSimulator.MouseMiddle(down); break;
@@ -50,44 +38,35 @@ namespace DotDesk.Client.Input
                         }
                         break;
 
-                    case "wheel":
-                        var delta = node["delta"]?.GetValue<int>() ?? 0;
-                        InputSimulator.MouseWheel(delta);
+                    case DotDeskMessageType.MouseWheel:
+                        InputSimulator.MouseWheel(message.Delta);
                         break;
 
-                    case "keydown":
-                    case "keyup":
-                        var isDown = type == "keydown";
-                        var scanCode = node["scanCode"]?.GetValue<int>() ?? 0;
-                        var extended = node["extended"]?.GetValue<bool>() ?? false;
-                        if (scanCode > 0)
-                        {
-                            InputSimulator.KeyScan((ushort)scanCode, isDown, extended);
-                        }
+                    case DotDeskMessageType.KeyDown:
+                    case DotDeskMessageType.KeyUp:
+                        var isDown = message.MessageType == DotDeskMessageType.KeyDown;
+                        if (message.ScanCode > 0)
+                            InputSimulator.KeyScan((ushort)message.ScanCode, isDown, message.Extended);
                         else
-                        {
-                            var keyCode = node["keyCode"]?.GetValue<int>() ?? 0;
-                            InputSimulator.KeyPress((ushort)keyCode, isDown);
-                        }
+                            InputSimulator.KeyPress((ushort)message.KeyCode, isDown);
                         break;
 
-                    case "secureAttention":
+                    case DotDeskMessageType.SecureAttention:
                         // Ctrl+Alt+Del 是 Windows 安全注意序列，普通桌面进程无法用 SendInput 触发。
-                        // ToDesk/RustDesk 这类一般依赖安装后的服务进程/系统组件完成。
-                        AppLogger.Log("Input", "收到 Ctrl+Alt+Del 请求，但当前未实现服务级安全注意序列注入");
+                        // ToDesk/RustDesk 这类软件通常依赖安装后的服务进程或系统组件完成。
+                        AppLogger.Log("Input", "收到 Ctrl+Alt+Del 请求，但当前尚未实现服务级安全注意序列注入");
                         break;
 
-                    case "requestKeyFrame":
+                    case DotDeskMessageType.RequestKeyFrame:
                         OnRequestKeyFrame?.Invoke();
                         break;
 
-                    case "keypress":
-                        // Unicode 字符输入
-                        var charCode = node["charCode"]?.GetValue<int>() ?? 0;
-                        if (charCode > 0)
+                    case DotDeskMessageType.KeyPress:
+                        // Unicode 字符输入。
+                        if (message.CharCode > 0)
                         {
-                            InputSimulator.KeyUnicode((char)charCode, true);
-                            InputSimulator.KeyUnicode((char)charCode, false);
+                            InputSimulator.KeyUnicode((char)message.CharCode, true);
+                            InputSimulator.KeyUnicode((char)message.CharCode, false);
                         }
                         break;
                 }

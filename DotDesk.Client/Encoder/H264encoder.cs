@@ -4,7 +4,7 @@ using Sdcb.FFmpeg.Codecs;
 using Sdcb.FFmpeg.Raw;
 using Sdcb.FFmpeg.Swscales;
 using Sdcb.FFmpeg.Utils;
-using DotDesk.Core;
+using DotDesk.Core.Logging;
 
 namespace DotDesk.Client.Encoder
 {
@@ -73,11 +73,11 @@ namespace DotDesk.Client.Encoder
             Log("图像转换器初始化完成");
         }
 
-        /// <summary>强制下一帧编码为关键帧（IDR帧）</summary>
+        /// <summary>强制下一帧编码为关键帧（IDR帧）。</summary>
         public void ForceKeyFrame()
         {
             if (_disposed) return;
-            // 设置标志，下次 Encode 时强制输出关键帧
+            Log("收到关键帧请求，下一帧强制 IDR");
             _forceKeyFrame = true;
         }
 
@@ -108,8 +108,7 @@ namespace DotDesk.Client.Encoder
                     _sws.ConvertFrame(_srcFrame, _dstFrame);
                     _dstFrame.Pts = _pts++;
 
-                    // 强制关键帧：直接操作底层 AVFrame 的 pict_type
-                    // 强制关键帧：直接操作底层 AVFrame 的 pict_type
+                    // 强制关键帧：直接操作底层 AVFrame，确保 x264 输出恢复点。
                     if (_forceKeyFrame)
                     {
                         ffmpeg.av_frame_make_writable(_dstFrame);

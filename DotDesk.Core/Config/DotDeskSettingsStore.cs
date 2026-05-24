@@ -4,7 +4,7 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 
-namespace DotDesk.Core
+namespace DotDesk.Core.Config
 {
     /// <summary>
     /// 本机轻量配置。用于保存固定访问密码和真实最近连接记录。

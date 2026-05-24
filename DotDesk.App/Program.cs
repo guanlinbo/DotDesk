@@ -28,7 +28,7 @@ namespace DotDesk.App
             Application.SetCompatibleTextRenderingDefault(false);
 
             ApplicationConfiguration.Initialize();
-            Application.Run(new manUi());
+            Application.Run(new MainForm());
         }
     }
 }
