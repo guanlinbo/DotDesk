@@ -1,214 +1,286 @@
-# \# DotDesk
+# DotDesk
+
+<!-- <p align="center">
+  <img src="http://www.dtros.com/dotdesk-hero.png" alt="DotDesk Preview" width="850">
+</p> -->
+
+<p align="center">
+  <b>DotDesk is an open-source remote desktop project built with C# and WebRTC.</b>
+</p>
+
+<p align="center">
+  <a href="https://github.com/guanlinbo/DotDesk">
+    <img src="https://img.shields.io/badge/GitHub-DotDesk-181717?style=flat-square&logo=github" alt="GitHub">
+  </a>
+  <img src="https://img.shields.io/badge/platform-Windows-blue?style=flat-square" alt="Platform">
+  <img src="https://img.shields.io/badge/language-C%23-512BD4?style=flat-square&logo=csharp" alt="C#">
+  <img src="https://img.shields.io/badge/WebRTC-P2P-brightgreen?style=flat-square" alt="WebRTC">
+  <img src="https://img.shields.io/badge/status-developing-orange?style=flat-square" alt="Status">
+</p>
+
+---
+
+## Introduction
+
+DotDesk is an open-source remote desktop software project.
+
+The goal of DotDesk is to build a simple, secure, low-latency and self-hostable remote desktop solution.
+
+DotDesk is currently under active development. It is mainly used for learning, research and implementation of remote desktop core technologies, including screen capture, video encoding, WebRTC communication, NAT traversal, signaling server and remote input control.
+
+---
+
+## Preview
+
+<p align="center">
+  <img src="http://www.dtros.com/dotdesk-hero.png" alt="DotDesk UI Preview" width="850">
+</p>
+
+---
+
+## Features
+
+- Remote desktop control
+- Device ID connection
+- One-time password authentication
+- WebSocket signaling server
+- WebRTC P2P connection
+- STUN / TURN support
+- H264 video transmission
+- Mouse input control
+- Keyboard input control
+- WebRTC DataChannel control channel
+- DXGI / GDI screen capture
+- AntdUI based Windows client UI
+- Network offline page
+- Recent connections page
+- Basic logging support
+
+---
+
+## Tech Stack
+
+| Part | Technology |
+| --- | --- |
+| Desktop Client | C# / WinForms / AntdUI |
+| Screen Capture | DXGI / GDI |
+| Video | H264 |
+| Realtime Communication | WebRTC |
+| Signaling | WebSocket |
+| NAT Traversal | STUN / TURN |
+| Control Channel | WebRTC DataChannel |
+| Server | C++ / WebSocket |
+| Platform | Windows |
+
+---
+
+## Project Structure
+
+```txt
+DotDesk
+├── DotDesk.App
+│   ├── Main window
+│   ├── Home page
+│   ├── Settings page
+│   └── Offline page
+│
+├── DotDesk.Core
+│   ├── Common models
+│   ├── Protocol definitions
+│   └── Utilities
+│
+├── DotDesk.Client
+│   ├── Host side logic
+│   ├── Screen capture
+│   ├── Video encoding
+│   └── Input injection
+│
+├── DotDesk.Controller
+│   ├── Controller side logic
+│   ├── Video decoding
+│   ├── Mouse control
+│   └── Keyboard control
+│
+└── DotDesk.Server
+    ├── Signaling server
+    ├── WebSocket service
+    └── Peer pairing
+```
 
-# 
+---
 
-# DotDesk 是一个基于 C# / WebRTC 的高性能远程桌面项目，目前仍在持续开发中。
+## How It Works
 
-# 
+```txt
+Controller enters the host device ID
+        │
+        ▼
+Connect to DotDesk signaling server
+        │
+        ▼
+Exchange Offer / Answer / ICE candidates
+        │
+        ▼
+Try WebRTC P2P connection first
+        │
+        ├── Success: transfer video and control data directly
+        │
+        └── Failed: fallback to TURN / relay
+        │
+        ▼
+Host captures screen and encodes video
+        │
+        ▼
+Controller receives and displays video stream
+        │
+        ▼
+Mouse and keyboard events are sent through DataChannel
+```
 
-# 这个项目最开始只是为了自己学习远程控制、音视频传输、WebRTC 和桌面采集相关技术，后来慢慢开始往真正可用的远程桌面方向演进。
+---
 
-# 
+## Getting Started
 
-# 目前已经实现：
+### Clone
 
-# 
+```bash
+git clone https://github.com/guanlinbo/DotDesk.git
+cd DotDesk
+```
 
-# \- WebRTC P2P 连接
+---
 
-# \- STUN / TURN NAT 穿透
+## Server
 
-# \- H264 视频传输
+Enter the server directory:
 
-# \- DXGI / GDI 屏幕采集
+```bash
+cd DotDesk.Server
+```
 
-# \- DataChannel 输入控制
+Build example:
 
-# \- 信令服务器
+```bash
+mkdir build
+cd build
+cmake ..
+make
+```
 
-# \- 临时密码验证
+Run:
 
-# 
+```bash
+./DotDesk_Server
+```
 
-# 后续计划：
+Default signaling URL example:
 
-# 
+```txt
+ws://your-server-ip:5000/ws/{deviceId}/{role}
+```
 
-# \- DXGI DirtyRect 脏矩形优化
+---
 
-# \- GPU 硬编码（NVENC / AMF / QSV）
+## Client
 
-# \- 多显示器支持
+Open the solution with Visual Studio.
 
-# \- 文件传输
+Set the startup project to:
 
-# \- 剪贴板同步
+```txt
+DotDesk.App
+```
 
-# \- 音频传输
+Then build and run.
 
-# \- 自适应码率
+---
 
-# \- 更完整的 UI
+## Network
 
-# 
+DotDesk uses WebRTC for remote desktop communication.
 
-# \---
+Recommended deployment:
 
-# 
+```txt
+Signaling Server  -> Peer registration and SDP / ICE exchange
+STUN Server       -> NAT detection
+TURN Server       -> Relay fallback when P2P fails
+```
 
-# \# 项目结构
+In complex NAT environments, TURN relay may be required to improve connection success rate.
 
-# 
+---
 
-# ```text
+## Roadmap
 
-# DotDesk.sln
+- [ ] File transfer
+- [ ] View-only mode
+- [ ] Unattended access
+- [ ] Multiple monitor support
+- [ ] Clipboard synchronization
+- [ ] Audio transmission
+- [ ] Adaptive bitrate
+- [ ] Dynamic quality control
+- [ ] GPU hardware encoding
+- [ ] DXGI Dirty Rect optimization
+- [ ] Device list
+- [ ] Connection history
+- [ ] Server authentication
+- [ ] Self-hosting documentation
+- [ ] Linux / macOS support
 
-# │
+---
 
-# ├─ DotDesk.App            WinForms UI
+## Development Goal
 
-# ├─ DotDesk.Client         被控端核心
+DotDesk is currently focused on implementing the core remote desktop pipeline:
 
-# ├─ DotDesk.Controller     控制端核心
+```txt
+Capture -> Encode -> Transport -> Decode -> Render -> Control
+```
 
-# ├─ DotDesk.Server         信令 / 中继服务器
+The project aims to keep the code structure simple and readable, making it easier to learn, debug and extend.
 
-# ├─ DotDesk.Core           公共协议与工具
+---
 
-# ```
+## Security Notice
 
-# 
+DotDesk is still under development.
 
-# \---
+Please do not use it directly in production or high-security environments.
 
-# 
+If you expose DotDesk services to the public network, make sure to configure:
 
-# \# 技术栈
+- Strong password
+- HTTPS / WSS
+- TURN long-term credentials
+- Firewall rules
+- Access control
+- Server-side authentication
 
-# 
+---
 
-# \- C#
+## Contributing
 
-# \- .NET Framework / .NET
+Contributions are welcome.
 
-# \- WebRTC
+You can help with:
 
-# \- SIPSorcery
+- UI improvement
+- Remote control experience
+- Video encoding optimization
+- WebRTC connection stability
+- P2P success rate
+- Server stability
+- Documentation
+- Bug fixes
 
-# \- WebSocket
+Feel free to open an Issue or Pull Request.
 
-# \- H264
+---
 
-# \- DXGI Desktop Duplication
+## License
 
-# \- Win32 API
+This project is currently for learning, research and technical communication.
 
-# \- FFmpeg
-
-# 
-
-# \---
-
-# 
-
-# \# 当前状态
-
-# 
-
-# 目前项目还处于开发阶段，代码结构和接口可能会频繁调整。
-
-# 
-
-# 现阶段重点主要放在：
-
-# 
-
-# \- 降低延迟
-
-# \- 提高稳定性
-
-# \- 优化编码性能
-
-# \- 改善弱网体验
-
-# \- 完善整体架构
-
-# 
-
-# \---
-
-# 
-
-# \# 关于 AI
-
-# 
-
-# 这个项目开发过程中有使用 AI 工具辅助，包括：
-
-# 
-
-# \- 部分代码思路整理
-
-# \- 架构讨论
-
-# \- Bug 排查
-
-# \- 一些重复性代码生成
-
-# \- 文档编写
-
-# 
-
-# 但整体功能设计、项目方向、架构调整以及大量调试工作仍然是自己一点点完成的。
-
-# 
-
-# 项目里很多地方目前还比较粗糙，也踩了不少坑，后面会继续慢慢重构和优化。
-
-# 
-
-# \---
-
-# 
-
-# \# 为什么做这个项目
-
-# 
-
-# 主要还是想自己真正深入理解：
-
-# 
-
-# \- 远程桌面到底是怎么实现的
-
-# \- WebRTC 的实际工作流程
-
-# \- P2P / NAT 穿透
-
-# \- 实时音视频传输
-
-# \- 高性能屏幕采集
-
-# \- 视频编码与网络优化
-
-# 
-
-# 市面上的远控软件用起来很简单，但真正自己从零做一遍后，才发现里面细节远比想象中复杂。
-
-# 
-
-# \---
-
-# 
-
-# \# 声明
-
-# 
-
-# 本项目仅用于学习和技术研究。
-
-# 
-
-# 请勿将本项目用于任何非法用途。
-
+Please evaluate security, stability and compliance before using it in production or commercial environments.
