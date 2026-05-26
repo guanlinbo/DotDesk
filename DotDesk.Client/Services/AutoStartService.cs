@@ -53,6 +53,7 @@ namespace DotDesk.Client
         {
             AppLogger.Log("AutoStart", $"设备码: {DeviceCode}");
             AppLogger.Log("AutoStart", $"连接服务器: {_serverUrl}");
+            AppLogger.Log("AutoStart", "视频管线版本: rtp-duration-fix + h264-depacketizer-fix + x264-vbv + datachannel-dotnet + app-rtp-fua + relay-low-latency");
             SetStatus("连接服务器中...");
 
             try

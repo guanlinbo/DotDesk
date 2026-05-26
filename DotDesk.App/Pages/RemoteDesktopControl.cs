@@ -1,11 +1,14 @@
-﻿using System;
+﻿using DotDesk.Controller.Network;
+using DotDesk.Core.Logging;
+using DotDesk.Core.Protocol;
+using System;
+using System.Diagnostics;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Threading;
 using System.Windows.Forms;
-using DotDesk.Core.Protocol;
-using DotDesk.Controller.Network;
 
 namespace DotDesk.App
 {
@@ -66,18 +69,45 @@ namespace DotDesk.App
         private readonly WebRtcReceiver _receiver;
         private readonly PictureBox _pic;
         private readonly Label _statusLabel;
+        private readonly Label _controllerNowLabel;
         private readonly Action _receiverDisconnectedHandler;
         private bool _firstFrameRendered;
         private bool _closing;
         private bool _closeConfirmed;
-        private int _renderPending;
         private long _lastMouseMoveTick;
         private bool _remoteInputEnabled;
         private Bitmap? _latestBitmap;
+        private long _latestBitmapCaptureMs;   // 帧的 captureTimestampMs，用于年龄检测
+        private long _latestBitmapFrameId;
+        private long _latestBitmapReceiveMs;
+        private long _latestBitmapDecodeMs;
+        private long _latestFrameQueuedAtMs;
         private readonly object _renderLock = new();
+        private readonly System.Windows.Forms.Timer _renderTimer;
         private readonly LowLevelKeyboardProc _keyboardProc;
         private IntPtr _keyboardHook;
         private readonly HashSet<uint> _downKeys = new();
+        private long _lastUiColorProbeTick;
+
+        // ── 端到端延迟统计 ────────────────────────────────────────────────────
+        // 每秒聚合一次，打印 [Latency] 日志
+        private long _latencyWindowTick;
+        private int _latencyFrameCount;
+        private long _latencyRawTotalMs;
+        private long _latencyRawMinMs = long.MaxValue;
+        private long _latencyRawMaxMs = long.MinValue;
+        private long _latencyAdjustedTotalMs;
+        private long _latencyAdjustedMinMs = long.MaxValue;
+        private long _latencyAdjustedMaxMs = long.MinValue;
+        private long _latestAdjustedLatencyMs;
+        private long _latestRawLatencyMs;
+        private long _latestAdjustedCaptureMs;
+        private long _latestControllerUiMs;
+        private long _latestFrameId;
+        private long _latestCaptureToUiMs;
+        private long _droppedUiFrames;
+        private long _lastLatestFrameAgeMs;
+        private const long MaxFrameAgeMs = 300; // 超过 300ms 的帧直接丢弃，不显示旧画面
 
         public RemoteDesktopControl(
             WebRtcReceiver receiver,
@@ -119,6 +149,18 @@ namespace DotDesk.App
             desktopSurfacePanel.Controls.Add(_pic);
             HookRemoteInputEvents();
 
+            _controllerNowLabel = new Label
+            {
+                AutoSize = false,
+                BackColor = Color.Black,
+                ForeColor = Color.Lime,
+                Font = new Font("Consolas", 10F, FontStyle.Bold),
+                TextAlign = ContentAlignment.MiddleRight,
+                Size = new Size(420, 42)
+            };
+            desktopSurfacePanel.Controls.Add(_controllerNowLabel);
+            _controllerNowLabel.BringToFront();
+
             _statusLabel = new Label
             {
                 AutoSize = false,
@@ -132,8 +174,16 @@ namespace DotDesk.App
             desktopSurfacePanel.Controls.Add(_statusLabel);
             _statusLabel.BringToFront();
 
+            _renderTimer = new System.Windows.Forms.Timer { Interval = 16 };
+            _renderTimer.Tick += (_, _) =>
+            {
+                UpdateControllerNowOverlay();
+                DrainRenderFrame();
+            };
+            _renderTimer.Start();
+
             // 视频帧回调
-            _receiver.OnVideoFrame += RenderFrame;
+            _receiver.OnVideoFrameWithTimestamp += RenderFrame;
 
             // 被控端断开
             _receiverDisconnectedHandler = () =>
@@ -307,7 +357,11 @@ namespace DotDesk.App
         private unsafe void RenderFrame(
             byte[] bgr,
             int width,
-            int height)
+            int height,
+            long captureTimestampMs,
+            long frameId,
+            long controllerReceiveMonoMs,
+            long controllerDecodeMonoMs)
         {
             try
             {
@@ -322,6 +376,8 @@ namespace DotDesk.App
 
                 if (bgr.Length < width * height * 3)
                     return;
+
+                LogUiColorProbe(bgr, width, height);
 
                 // 创建 Bitmap
                 Bitmap bmp = new Bitmap(
@@ -365,7 +421,7 @@ namespace DotDesk.App
                     return;
                 }
 
-                QueueRenderFrame(bmp);
+                QueueRenderFrame(bmp, captureTimestampMs, frameId, controllerReceiveMonoMs, controllerDecodeMonoMs);
             }
             catch (Exception ex)
             {
@@ -373,7 +429,30 @@ namespace DotDesk.App
             }
         }
 
-        private void QueueRenderFrame(Bitmap bmp)
+        private void LogUiColorProbe(byte[] bgr, int width, int height)
+        {
+            long now = Environment.TickCount64;
+            if (_lastUiColorProbeTick != 0 && now - _lastUiColorProbeTick < 1000)
+                return;
+
+            _lastUiColorProbeTick = now;
+            if (width <= 0 || height <= 0 || bgr.Length < width * height * 3)
+                return;
+
+            int x = width / 2;
+            int y = height / 2;
+            int i = (y * width + x) * 3;
+            AppLogger.Log(
+                "Color",
+                $"ui input BGR b={bgr[i]} g={bgr[i + 1]} r={bgr[i + 2]} size={width}x{height} bitmap=Format24bppRgb");
+        }
+
+        private void QueueRenderFrame(
+            Bitmap bmp,
+            long captureTimestampMs,
+            long frameId,
+            long controllerReceiveMonoMs,
+            long controllerDecodeMonoMs)
         {
             if (_closing || _pic.IsDisposed)
             {
@@ -386,25 +465,46 @@ namespace DotDesk.App
             {
                 old = _latestBitmap;
                 _latestBitmap = bmp;
+                _latestBitmapCaptureMs = captureTimestampMs;
+                _latestBitmapFrameId = frameId;
+                _latestBitmapReceiveMs = controllerReceiveMonoMs;
+                _latestBitmapDecodeMs = controllerDecodeMonoMs;
+                _latestFrameQueuedAtMs = Environment.TickCount64;
+                _receiver.ReportUiQueueLength(1);
+                if (old != null) Interlocked.Increment(ref _droppedUiFrames);
             }
             old?.Dispose();
-
-            if (Interlocked.Exchange(ref _renderPending, 1) == 0)
-            {
-                if (_pic.InvokeRequired)
-                    _pic.BeginInvoke(new Action(DrainRenderFrame));
-                else
-                    DrainRenderFrame();
-            }
         }
 
         private void DrainRenderFrame()
         {
+            // 【策略：跳帧而非排队】
+            // 每次进入 DrainRenderFrame 时，直接取最新帧（_latestBitmap），
+            // 而不是按队列顺序依次播放。
+            // 如果上一帧还没画完新帧又来了，不会 BeginInvoke 多次——
+            // _renderPending=1 保证同时只有一个 DrainRenderFrame 在跑，
+            // 而 _latestBitmap 始终被覆盖为最新帧，所以"显示的永远是最新帧"。
+
             Bitmap? bmp;
+            long captureMs;
+            long frameId;
+            long receiveMs;
+            long decodeMs;
+            long queuedAtMs;
             lock (_renderLock)
             {
                 bmp = _latestBitmap;
+                captureMs = _latestBitmapCaptureMs;
+                frameId = _latestBitmapFrameId;
+                receiveMs = _latestBitmapReceiveMs;
+                decodeMs = _latestBitmapDecodeMs;
+                queuedAtMs = _latestFrameQueuedAtMs;
                 _latestBitmap = null;
+                _latestBitmapCaptureMs = 0;
+                _latestBitmapFrameId = 0;
+                _latestBitmapReceiveMs = 0;
+                _latestBitmapDecodeMs = 0;
+                _latestFrameQueuedAtMs = 0;
             }
 
             if (bmp != null)
@@ -412,27 +512,57 @@ namespace DotDesk.App
                 if (_closing || _pic.IsDisposed)
                     bmp.Dispose();
                 else
-                    SetPicture(bmp);
+                {
+                    long latestAgeMs = Environment.TickCount64 - queuedAtMs;
+                    if (queuedAtMs > 0 && latestAgeMs > MaxFrameAgeMs)
+                    {
+                        Interlocked.Increment(ref _droppedUiFrames);
+                        AppLogger.Log("UI", $"[UI] drop stale latestFrameAgeMs={latestAgeMs} droppedUiFrames={Interlocked.Read(ref _droppedUiFrames)}");
+                        bmp.Dispose();
+                    }
+                    else
+                    {
+                        _lastLatestFrameAgeMs = latestAgeMs;
+                        SetPicture(bmp, captureMs, frameId, receiveMs, decodeMs);
+                    }
+                }
             }
 
             lock (_renderLock)
             {
-                if (_latestBitmap != null)
-                {
-                    if (!_closing && !_pic.IsDisposed)
-                        _pic.BeginInvoke(new Action(DrainRenderFrame));
-                    return;
-                }
-
-                Interlocked.Exchange(ref _renderPending, 0);
+                _receiver.ReportUiQueueLength(_latestBitmap == null ? 0 : 1);
             }
         }
+
+        private void UpdateControllerNowOverlay()
+        {
+            if (_controllerNowLabel.IsDisposed)
+                return;
+
+            _controllerNowLabel.Text =
+                $"CTRL {DateTime.Now:HH:mm:ss.fff} {MonoNowMs()}\r\n" +
+                $"fid={Interlocked.Read(ref _latestFrameId)} c2ui={Interlocked.Read(ref _latestCaptureToUiMs)}ms " +
+                $"recv2ui={Interlocked.Read(ref _latestRawLatencyMs)}ms dec2ui={Interlocked.Read(ref _latestAdjustedLatencyMs)}ms " +
+                $"rtt={_receiver.TimeSyncRttMs}ms off={_receiver.HostToControllerOffsetMs}ms";
+            _controllerNowLabel.Location = new Point(
+                Math.Max(0, desktopSurfacePanel.ClientSize.Width - _controllerNowLabel.Width - 8),
+                8);
+            _controllerNowLabel.BringToFront();
+        }
+
+        private void RenderFrameWithoutTimestamp(byte[] bgr, int width, int height) =>
+            RenderFrame(bgr, width, height, MonoNowMs(), 0, MonoNowMs(), MonoNowMs());
 
         // ─────────────────────────────────────────────
         // 设置 PictureBox 图片
         // ─────────────────────────────────────────────
 
-        private void SetPicture(Bitmap bmp)
+        private void SetPicture(
+            Bitmap bmp,
+            long captureTimestampMs = 0,
+            long frameId = 0,
+            long controllerReceiveMonoMs = 0,
+            long controllerDecodeMonoMs = 0)
         {
             if (_pic.IsDisposed)
             {
@@ -440,11 +570,101 @@ namespace DotDesk.App
                 return;
             }
 
+            long uiMs = MonoNowMs();
+
+            // ── 端到端延迟统计（每秒打印一次）────────────────────────────────
+            if (captureTimestampMs > 0)
+            {
+                long hostToControllerOffsetMs = _receiver.HostToControllerOffsetMs;
+                long adjustedCaptureMs = captureTimestampMs + hostToControllerOffsetMs;
+                long captureToUiMs = uiMs - adjustedCaptureMs;
+                long receiveToUiMs = controllerReceiveMonoMs > 0 ? uiMs - controllerReceiveMonoMs : 0;
+                long decodeToUiMs = controllerDecodeMonoMs > 0 ? uiMs - controllerDecodeMonoMs : 0;
+                bool validE2E = captureToUiMs >= -50 && captureToUiMs <= 5000;
+
+                if (!validE2E)
+                {
+                    Interlocked.Exchange(ref _latestFrameId, frameId);
+                    Interlocked.Exchange(ref _latestCaptureToUiMs, 0);
+                    Interlocked.Exchange(ref _latestRawLatencyMs, receiveToUiMs);
+                    Interlocked.Exchange(ref _latestAdjustedLatencyMs, decodeToUiMs);
+                    Interlocked.Exchange(ref _latestAdjustedCaptureMs, adjustedCaptureMs);
+                    Interlocked.Exchange(ref _latestControllerUiMs, uiMs);
+                    AppLogger.Log("Latency",
+                        $"[E2E] invalid offset/sign error frameId={frameId} " +
+                        $"hostCapture={captureTimestampMs} controllerUi={uiMs} " +
+                        $"adjustedCapture={adjustedCaptureMs} captureToUi={captureToUiMs} " +
+                        $"hostToControllerOffsetMs={hostToControllerOffsetMs} rtt={_receiver.TimeSyncRttMs}ms");
+                }
+                else if (captureToUiMs > MaxFrameAgeMs)
+                {
+                    Interlocked.Exchange(ref _latestFrameId, frameId);
+                    Interlocked.Exchange(ref _latestCaptureToUiMs, captureToUiMs);
+                    Interlocked.Exchange(ref _latestRawLatencyMs, receiveToUiMs);
+                    Interlocked.Exchange(ref _latestAdjustedLatencyMs, decodeToUiMs);
+                    Interlocked.Exchange(ref _latestAdjustedCaptureMs, adjustedCaptureMs);
+                    Interlocked.Exchange(ref _latestControllerUiMs, uiMs);
+                    Interlocked.Increment(ref _droppedUiFrames);
+                    AppLogger.Log("Latency",
+                        $"[E2E] dropped reason=too_old frameId={frameId} " +
+                        $"hostCapture={captureTimestampMs} controllerUi={uiMs} " +
+                        $"adjustedCapture={adjustedCaptureMs} captureToUi={captureToUiMs}");
+                    bmp.Dispose();
+                    return;
+                }
+                else
+                {
+                    Interlocked.Exchange(ref _latestFrameId, frameId);
+                    Interlocked.Exchange(ref _latestCaptureToUiMs, captureToUiMs);
+                    Interlocked.Exchange(ref _latestRawLatencyMs, receiveToUiMs);
+                    Interlocked.Exchange(ref _latestAdjustedLatencyMs, decodeToUiMs);
+                    Interlocked.Exchange(ref _latestAdjustedCaptureMs, adjustedCaptureMs);
+                    Interlocked.Exchange(ref _latestControllerUiMs, uiMs);
+                }
+
+                if (validE2E)
+                {
+                    _latencyFrameCount++;
+                    _latencyRawTotalMs += captureToUiMs;
+                    _latencyAdjustedTotalMs += decodeToUiMs;
+                    if (captureToUiMs < _latencyRawMinMs) _latencyRawMinMs = captureToUiMs;
+                    if (captureToUiMs > _latencyRawMaxMs) _latencyRawMaxMs = captureToUiMs;
+                    if (decodeToUiMs < _latencyAdjustedMinMs) _latencyAdjustedMinMs = decodeToUiMs;
+                    if (decodeToUiMs > _latencyAdjustedMaxMs) _latencyAdjustedMaxMs = decodeToUiMs;
+                }
+
+                if (_latencyWindowTick == 0) _latencyWindowTick = uiMs;
+                if (uiMs - _latencyWindowTick >= 1000)
+                {
+                    long rawAvgMs = _latencyFrameCount > 0 ? _latencyRawTotalMs / _latencyFrameCount : 0;
+                    long adjustedAvgMs = _latencyFrameCount > 0 ? _latencyAdjustedTotalMs / _latencyFrameCount : 0;
+                    long rawMinMs = _latencyRawMinMs == long.MaxValue ? 0 : _latencyRawMinMs;
+                    long rawMaxMs = _latencyRawMaxMs == long.MinValue ? 0 : _latencyRawMaxMs;
+                    long adjustedMinMs = _latencyAdjustedMinMs == long.MaxValue ? 0 : _latencyAdjustedMinMs;
+                    long adjustedMaxMs = _latencyAdjustedMaxMs == long.MinValue ? 0 : _latencyAdjustedMaxMs;
+                    AppLogger.Log("Latency",
+                        $"[E2E] frameId={frameId} hostCapture={captureTimestampMs} " +
+                        $"controllerReceive={controllerReceiveMonoMs} controllerDecode={controllerDecodeMonoMs} " +
+                        $"controllerUi={uiMs} adjustedCapture={adjustedCaptureMs} " +
+                        $"captureToUi={captureToUiMs}ms captureToUi min={rawMinMs}ms max={rawMaxMs}ms avg={rawAvgMs}ms " +
+                        $"decodeToUi min={adjustedMinMs}ms max={adjustedMaxMs}ms avg={adjustedAvgMs}ms " +
+                        $"rtt={_receiver.TimeSyncRttMs}ms hostToControllerOffsetMs={hostToControllerOffsetMs}ms frames={_latencyFrameCount}/s " +
+                        $"uiQueueLength={(_latestBitmap == null ? 0 : 1)} droppedUiFrames={Interlocked.Read(ref _droppedUiFrames)}");
+                    _latencyFrameCount = 0;
+                    _latencyRawTotalMs = 0;
+                    _latencyRawMinMs = long.MaxValue;
+                    _latencyRawMaxMs = long.MinValue;
+                    _latencyAdjustedTotalMs = 0;
+                    _latencyAdjustedMinMs = long.MaxValue;
+                    _latencyAdjustedMaxMs = long.MinValue;
+                    _latencyWindowTick = uiMs;
+                }
+            }
+
             Image? old = _pic.Image;
-
             _pic.Image = bmp;
-
             old?.Dispose();
+            _receiver.ReportUiFrameRendered();
 
             if (!_firstFrameRendered)
             {
@@ -453,6 +673,7 @@ namespace DotDesk.App
                 InstallKeyboardHook();
                 _statusLabel.Visible = false;
                 _pic.BringToFront();
+                _controllerNowLabel.BringToFront();
                 _pic.Focus();
             }
         }
@@ -699,13 +920,14 @@ namespace DotDesk.App
             UninstallKeyboardHook();
             KeyDown -= RemoteDesktopControl_KeyDown;
             KeyUp -= RemoteDesktopControl_KeyUp;
-            _receiver.OnVideoFrame -= RenderFrame;
+            _renderTimer.Stop();
+            _renderTimer.Dispose();
+            _receiver.OnVideoFrameWithTimestamp -= RenderFrame;
             _receiver.OnDisconnected -= _receiverDisconnectedHandler;
             _receiver.OnRemoteCursorChanged -= ApplyRemoteCursor;
 
-            Image? old = _pic.Image;
+            _pic.Image?.Dispose();
             _pic.Image = null;
-            old?.Dispose();
             lock (_renderLock)
             {
                 _latestBitmap?.Dispose();
@@ -763,6 +985,9 @@ namespace DotDesk.App
             else if (bottom) m.Result = htBottom;
             else if (point.Y <= remoteTopBar.Height) m.Result = htCaption;
         }
+
+        private static long MonoNowMs() =>
+            Stopwatch.GetTimestamp() * 1000 / Stopwatch.Frequency;
 
         private sealed class EndRemoteDialog : Form
         {

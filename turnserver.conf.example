@@ -13,8 +13,10 @@ server-name=dotdesk-turn
 # 与客户端当前 ICE 配置保持一致：
 user=dotdesk:DotDesk2025
 lt-cred-mech
+# DataChannelDotnet/libjuice 会校验 TURN Allocate 响应中的 MESSAGE-INTEGRITY。
+# 不要启用 no-auth，也不要用会返回无 MESSAGE-INTEGRITY 响应的配置，否则不会生成 relay candidate。
 
-# UDP / TCP TURN 都开启；客户端会先 UDP，再 TCP，再 TLS。
+# UDP TURN 必须开启。DataChannelDotnet 1.3.1 当前 libjuice native 包不支持 TURN TCP/TLS。
 no-multicast-peers
 no-loopback-peers
 fingerprint

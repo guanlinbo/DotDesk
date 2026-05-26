@@ -1,4 +1,5 @@
 using AntdUI;
+using System.Runtime.CompilerServices;
 using AntButton = AntdUI.Button;
 using WinMessage = System.Windows.Forms.Message;
 
@@ -17,9 +18,10 @@ namespace DotDesk.App
         private System.Windows.Forms.Timer? _offlineRetryTimer;
         private bool _offlineRetrying;
 
-        private RoundTabLine? _homeTabLine;
-        private RoundTabLine? _settingsTabLine;
+        private DotDesk.App.RoundTabLine? _homeTabLine;
+        private DotDesk.App.RoundTabLine? _settingsTabLine;
 
+        
         private enum Tab
         {
             Home,
@@ -38,63 +40,6 @@ namespace DotDesk.App
         /// 椤堕儴 Tab 涓嬮潰鐨勫皬钃濇潯銆?
         /// 涓嶇敤鏅€?Panel锛屾槸鍥犱负鏅€?Panel 鍦嗚涓嶅ソ鎺у埗銆?
         /// </summary>
-        private class RoundTabLine : System.Windows.Forms.Control
-        {
-            [System.ComponentModel.DesignerSerializationVisibility(System.ComponentModel.DesignerSerializationVisibility.Hidden)]
-            public Color LineColor { get; set; } = Color.FromArgb(37, 99, 235);
-
-            public RoundTabLine()
-            {
-                SetStyle(
-                    ControlStyles.AllPaintingInWmPaint |
-                    ControlStyles.OptimizedDoubleBuffer |
-                    ControlStyles.ResizeRedraw |
-                    ControlStyles.UserPaint |
-                    ControlStyles.SupportsTransparentBackColor,
-                    true
-                );
-
-                BackColor = Color.Transparent;
-            }
-
-            protected override void OnPaint(PaintEventArgs e)
-            {
-                base.OnPaint(e);
-
-                e.Graphics.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.AntiAlias;
-                e.Graphics.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
-
-                int lineHeight = 3;
-                int y = (Height - lineHeight) / 2;
-
-                using var brush = new SolidBrush(LineColor);
-                using var path = CreateRoundRectPath(
-                    new RectangleF(0, y, Width, lineHeight),
-                    lineHeight / 2f
-                );
-
-                e.Graphics.FillPath(brush, path);
-            }
-
-            private static System.Drawing.Drawing2D.GraphicsPath CreateRoundRectPath(RectangleF rect, float radius)
-            {
-                var path = new System.Drawing.Drawing2D.GraphicsPath();
-
-                float d = radius * 2;
-
-                if (d > rect.Width) d = rect.Width;
-                if (d > rect.Height) d = rect.Height;
-
-                path.AddArc(rect.X, rect.Y, d, d, 180, 90);
-                path.AddArc(rect.Right - d, rect.Y, d, d, 270, 90);
-                path.AddArc(rect.Right - d, rect.Bottom - d, d, d, 0, 90);
-                path.AddArc(rect.X, rect.Bottom - d, d, d, 90, 90);
-                path.CloseFigure();
-
-                return path;
-            }
-        }
-
         public MainForm()
         {
             InitializeComponent();
@@ -122,18 +67,9 @@ namespace DotDesk.App
         /// </summary>
         private void InitChrome()
         {
-            Size = new Size(1180, 680);
-            MinimumSize = new Size(1180, 680);
-            BackColor = Color.FromArgb(246, 249, 255);
+            DotDeskUi.ApplyFixedMainWindow(this);
 
-            Radius = 18;
-            Shadow = 18;
-            ShadowColor = Color.FromArgb(90, 15, 23, 42);
-            ShadowPierce = false;
-            UseDwm = true;
-            Resizable = true;
-
-            titleBar.BackColor = Color.White;
+            titleBar.BackColor = DotDeskUi.AppBackground;
             titleBar.MouseDown += DragWindow;
 
             appLogoLabel.Text = "D";
@@ -144,10 +80,10 @@ namespace DotDesk.App
             contentPanel.BorderWidth = 0;
 
             // 鍙充笂瑙掔獥鍙ｆ寜閽紝鍏ㄩ儴浣跨敤 SVG锛屼笉鐢ㄦ枃瀛?
-            StyleWindowButton(menuButton, "menu");
-            StyleWindowButton(minimizeWindowButton, "minimize");
-            StyleWindowButton(maximizeWindowButton, "maximize");
-            StyleWindowButton(closeWindowButton, "close", true);
+            DotDeskUi.StyleWindowButton(menuButton, "menu");
+            DotDeskUi.StyleWindowButton(minimizeWindowButton, "minimize");
+            DotDeskUi.StyleWindowButton(maximizeWindowButton, "maximize");
+            DotDeskUi.StyleWindowButton(closeWindowButton, "close", true);
 
             CreateTabLines();
 
@@ -169,14 +105,14 @@ namespace DotDesk.App
         /// </summary>
         private void CreateTabLines()
         {
-            _homeTabLine = new RoundTabLine
+            _homeTabLine = new DotDesk.App.RoundTabLine
             {
                 Size = new Size(40, 6),
                 LineColor = Color.FromArgb(37, 99, 235),
                 Visible = false
             };
 
-            _settingsTabLine = new RoundTabLine
+            _settingsTabLine = new DotDesk.App.RoundTabLine
             {
                 Size = new Size(40, 6),
                 LineColor = Color.FromArgb(37, 99, 235),
@@ -238,8 +174,12 @@ namespace DotDesk.App
             bool homeBlue = visualTab == Tab.Home;
             bool settingsBlue = visualTab == Tab.Settings;
 
-            StyleTopButton(homeTabButton, "主页", "home", homeBlue);
-            StyleTopButton(settingsTabButton, "设置", "settings", settingsBlue);
+            DotDeskUi.StyleTopButton(homeTabButton, "主页", "home", homeBlue);
+            DotDeskUi.StyleTopButton(settingsTabButton, "设置", "settings", settingsBlue);
+
+
+            //homeTabButton.Back = DotDeskUi.AppBackground;
+            homeTabButton.BackColor = DotDeskUi.AppBackground;
 
             if (_homeTabLine != null)
             {
@@ -254,121 +194,6 @@ namespace DotDesk.App
             }
 
             LayoutTabLines();
-        }
-
-        private static void StyleTopButton(AntButton button, string text, string iconName, bool blue)
-        {
-            Color blueColor = Color.FromArgb(37, 99, 235);
-            Color grayColor = Color.FromArgb(100, 116, 139);
-
-            Color currentColor = blue ? blueColor : grayColor;
-
-            button.Text = text;
-            button.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Regular);
-
-            button.ForeColor = currentColor;
-            button.ForeHover = blueColor;
-
-            button.OriginalBackColor = Color.White;
-            button.BackColor = Color.White;
-            button.BackHover = Color.White;
-            button.BackActive = Color.White;
-
-            button.Radius = 0;
-            button.BorderWidth = 0;
-            button.DefaultBorderColor = Color.Transparent;
-            button.Ghost = false;
-            button.WaveSize = 0;
-
-            button.Padding = new Padding(8, 0, 8, 0);
-            button.IconSize = new Size(16, 16);
-
-            button.IconSvg = GetTabIconSvg(iconName, currentColor);
-            button.IconHoverSvg = GetTabIconSvg(iconName, blueColor);
-        }
-
-        private static string GetTabIconSvg(string iconName, Color color)
-        {
-            string fill = ColorTranslator.ToHtml(color);
-
-            return iconName switch
-            {
-                "home" =>
-                    $"<svg viewBox=\"0 0 1024 1024\">" +
-                    $"<path fill=\"{fill}\" d=\"M946.5 505L534.6 93.4a31.93 31.93 0 0 0-45.2 0L77.5 505c-12 12-18.8 28.3-18.8 45.3 0 35.3 28.7 64 64 64h43.4V908c0 17.7 14.3 32 32 32H448V716h128v224h265.9c17.7 0 32-14.3 32-32V614.3h43.4c17 0 33.3-6.7 45.3-18.8 24.9-25 24.9-65.5-.1-90.5z\"/>" +
-                    $"</svg>",
-
-                "settings" =>
-                    $"<svg viewBox=\"0 0 1024 1024\">" +
-                    $"<path fill=\"{fill}\" d=\"M924.8 625.7l-65.5-56c3.1-19 4.7-38.4 4.7-57.8s-1.6-38.8-4.7-57.8l65.5-56a32.03 32.03 0 0 0 9.3-35.2l-.9-2.6a442.81 442.81 0 0 0-79.7-137.9l-1.8-2.1a32.12 32.12 0 0 0-35.1-9.5l-81.3 28.9c-30-24.6-63.5-44-99.7-57.6l-15.7-85a32.05 32.05 0 0 0-25.8-25.7l-2.7-.5c-52.1-9.4-106.9-9.4-159 0l-2.7.5a32.05 32.05 0 0 0-25.8 25.7l-15.8 85.4a351.86 351.86 0 0 0-99 57.4l-81.9-29.1a32 32 0 0 0-35.1 9.5l-1.8 2.1a446.02 446.02 0 0 0-79.7 137.9l-.9 2.6c-4.5 12.5-.8 26.5 9.3 35.2l66.3 56.6c-3.1 18.8-4.6 38-4.6 57.1 0 19.2 1.5 38.4 4.6 57.1L99 625.5a32.03 32.03 0 0 0-9.3 35.2l.9 2.6c18.1 50.4 44.9 96.9 79.7 137.9l1.8 2.1a32.12 32.12 0 0 0 35.1 9.5l81.9-29.1c29.8 24.5 63.1 43.9 99 57.4l15.8 85.4a32.05 32.05 0 0 0 25.8 25.7l2.7.5a449.4 449.4 0 0 0 159 0l2.7-.5a32.05 32.05 0 0 0 25.8-25.7l15.7-85a351.86 351.86 0 0 0 99.7-57.6l81.3 28.9a32 32 0 0 0 35.1-9.5l1.8-2.1c34.8-41.1 61.6-87.5 79.7-137.9l.9-2.6c4.5-12.3.8-26.3-9.3-35zM512 668c-85.7 0-156-70.3-156-156s70.3-156 156-156 156 70.3 156 156-70.3 156-156 156z\"/>" +
-                    $"</svg>",
-
-                _ => ""
-            };
-        }
-
-        private static string GetWindowIconSvg(string iconName, Color color)
-        {
-            string stroke = ColorTranslator.ToHtml(color);
-
-            return iconName switch
-            {
-                "menu" =>
-                    $"<svg viewBox=\"0 0 1024 1024\">" +
-                    $"<path d=\"M224 320H800M224 512H800M224 704H800\" stroke=\"{stroke}\" stroke-width=\"78\" stroke-linecap=\"round\" fill=\"none\"/>" +
-                    $"</svg>",
-
-                "minimize" =>
-                    $"<svg viewBox=\"0 0 1024 1024\">" +
-                    $"<path d=\"M256 512H768\" stroke=\"{stroke}\" stroke-width=\"78\" stroke-linecap=\"round\" fill=\"none\"/>" +
-                    $"</svg>",
-
-                "maximize" =>
-                    $"<svg viewBox=\"0 0 1024 1024\">" +
-                    $"<rect x=\"256\" y=\"256\" width=\"512\" height=\"512\" rx=\"42\" ry=\"42\" stroke=\"{stroke}\" stroke-width=\"72\" fill=\"none\"/>" +
-                    $"</svg>",
-
-                "close" =>
-                    $"<svg viewBox=\"0 0 1024 1024\">" +
-                    $"<path d=\"M304 304L720 720M720 304L304 720\" stroke=\"{stroke}\" stroke-width=\"78\" stroke-linecap=\"round\" fill=\"none\"/>" +
-                    $"</svg>",
-
-                _ => ""
-            };
-        }
-
-        private static void StyleWindowButton(AntButton button, string iconName, bool isClose = false)
-        {
-            Color normalColor = Color.FromArgb(30, 41, 59);
-            Color hoverColor = isClose ? Color.White : Color.FromArgb(15, 23, 42);
-
-            button.Text = "";
-            button.Font = new Font("Segoe UI", 12F, FontStyle.Regular);
-
-            button.ForeColor = normalColor;
-            button.ForeHover = hoverColor;
-
-            button.IconSize = new Size(17, 17);
-            button.IconSvg = GetWindowIconSvg(iconName, normalColor);
-            button.IconHoverSvg = GetWindowIconSvg(iconName, hoverColor);
-
-            button.OriginalBackColor = Color.White;
-            button.BackColor = Color.White;
-
-            button.BackHover = isClose
-                ? Color.FromArgb(239, 68, 68)
-                : Color.FromArgb(241, 245, 249);
-
-            button.BackActive = isClose
-                ? Color.FromArgb(220, 38, 38)
-                : Color.FromArgb(226, 232, 240);
-
-            button.Radius = 8;
-            button.BorderWidth = 0;
-            button.WaveSize = 0;
-            button.Ghost = false;
-            button.DefaultBorderColor = Color.Transparent;
-            button.Padding = new Padding(0);
         }
 
         private void homeTabButton_Click(object? sender, EventArgs e)
@@ -523,9 +348,8 @@ namespace DotDesk.App
 
         private void maximizeWindowButton_Click(object sender, EventArgs e)
         {
-            WindowState = WindowState == FormWindowState.Maximized
-                ? FormWindowState.Normal
-                : FormWindowState.Maximized;
+            // 主界面固定尺寸，保留按钮位置但不执行最大化。
+            WindowState = FormWindowState.Normal;
         }
 
         private void closeWindowButton_Click(object sender, EventArgs e)

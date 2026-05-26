@@ -5,8 +5,8 @@ using System.IO;
 namespace DotDesk.Controller.Network
 {
     /// <summary>
-    /// 将 RTP H264 payload 还原为 Annex-B NAL。
-    /// WebRTC 收到的 H264 经常是 FU-A 分片或 STAP-A 聚合包，不能直接丢给 FFmpeg。
+    /// Converts H264 RTP payloads back to Annex-B NAL units.
+    /// WebRTC H264 can arrive as single NAL, STAP-A aggregation, or FU-A fragments.
     /// </summary>
     public sealed class H264RtpDepacketizer
     {
@@ -26,14 +26,14 @@ namespace DotDesk.Controller.Network
 
             int nalType = payload[0] & 0x1F;
 
-            // 单 NAL 包：1-23。
+            // Single NAL unit packet.
             if (nalType > 0 && nalType < 24)
             {
                 yield return ToAnnexB(payload, 0, payload.Length);
                 yield break;
             }
 
-            // STAP-A：一个 RTP payload 内聚合多个 NAL。
+            // STAP-A: one RTP payload aggregates multiple NAL units.
             if (nalType == 24)
             {
                 int offset = 1;
@@ -41,8 +41,12 @@ namespace DotDesk.Controller.Network
                 {
                     int size = (payload[offset] << 8) | payload[offset + 1];
                     offset += 2;
+
                     if (size <= 0 || offset + size > payload.Length)
+                    {
+                        Reset();
                         yield break;
+                    }
 
                     yield return ToAnnexB(payload, offset, size);
                     offset += size;
@@ -51,7 +55,7 @@ namespace DotDesk.Controller.Network
                 yield break;
             }
 
-            // FU-A：大 NAL 分片。只有 end 分片到达时返回完整 NAL。
+            // FU-A: large NAL split across multiple RTP payloads.
             if (nalType == 28 && payload.Length >= 2)
             {
                 byte fuIndicator = payload[0];
@@ -83,6 +87,8 @@ namespace DotDesk.Controller.Network
 
                 yield break;
             }
+
+            Reset();
         }
 
         public void Reset()

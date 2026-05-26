@@ -1,14 +1,9 @@
-using System;
-using System.ComponentModel;
+ï»¿using System;
 using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.IO;
-using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Windows.Forms;
 using AntdUI;
-using DotDesk.App;
 using DotDesk.Client;
 using DotDesk.Controller.Network;
 using DotDesk.Core.Config;
@@ -19,470 +14,261 @@ namespace DotDesk.App
 {
     public partial class HomePage : UserControl
     {
+        private const int SidebarWidth = DotDeskUi.MainSidebarWidth;
+        private const int ContentTopOffset = 70;
+
         public event Action<bool>? NetworkOfflineChanged;
 
-        // ©¤©¤ ÒµÎñ¶ÔÏó ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+        // â”€â”€ ä¸šåŠ¡å¯¹è±¡ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         private AutoStartService? _autoStart;
         private WebRtcReceiver? _receiver;
         private bool _connecting;
         private int? _lastServerLatencyMs;
-        private static bool _autoStartInitialized;  // ¾²Ì¬±êÖ¾£¬È«¾ÖÖ»³õÊ¼»¯Ò»´Î
+        private static bool _autoStartInitialized;
+
+        // â”€â”€ åŠ è½½é®ç½© â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         private System.Windows.Forms.Panel? _loadingOverlay;
         private System.Windows.Forms.Label? _loadingTitle;
         private System.Windows.Forms.Label? _loadingSubtitle;
         private ProgressBar? _loadingProgress;
+
+        // â”€â”€ è¢«æ§æç¤º â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         private System.Windows.Forms.Panel? _controlledNoticePanel;
         private System.Windows.Forms.Label? _controlledNoticeTitle;
         private System.Windows.Forms.Label? _controlledNoticeSubtitle;
-        private bool _formattingRemoteId;
-        private readonly List<PictureBox> _runtimeIcons = new();
 
-        // ©¤©¤ ·şÎñÆ÷µØÖ· ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+        // å·¦ä¾§æ 
+        private DotDeskSidebar? _sidebar;
+
+        // å³ä¾§å†…å®¹åŒº
+        private DotDeskHomeContent? _homeContent;
+        private LatencyFlashWindow? _latencyFlashWindow;
+
+        // å¤åˆ¶æç¤º
+        private AntdUI.Panel? _copyToastPanel;
+        private System.Windows.Forms.Label? _copyToastLabel;
+        private System.Windows.Forms.Timer? _copyToastTimer;
+
+        // â”€â”€ æœåŠ¡å™¨åœ°å€ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
         private const string SERVER_WS = "ws://159.75.93.74:5000";
         private const string SERVER_HTTP = "http://159.75.93.74:5000";
 
-        // ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
         public HomePage()
         {
             InitializeComponent();
+
             InitUI();
+            CreateCopyToast();
 
             HandleDestroyed += HomePage_HandleDestroyed;
             HandleCreated += async (_, _) => await InitAutoStartAsync();
         }
 
-        // ©¤©¤ UI ³õÊ¼»¯ ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+        // â”€â”€ UI åˆå§‹åŒ– â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private void InitUI()
         {
-            Size = new Size(1000, 560);
+            Size = DotDeskUi.HomePageSize;
+            BackColor = DotDeskUi.AppBackground;
+
             LayoutCompactHome();
-            BackColor = Color.FromArgb(246, 249, 255);
-
-            sidebarPanel.Back = Color.FromArgb(241, 245, 249);
-            sidebarPanel.BackColor = Color.FromArgb(241, 245, 249);
-            mainContentPanel.Back = Color.FromArgb(246, 249, 255);
-            mainContentPanel.BackColor = Color.FromArgb(246, 249, 255);
-
-            StyleCard(heroCardPanel, Color.FromArgb(30, 94, 255));
-            StyleCard(deviceInfoCardPanel, Color.White);
-            StyleCard(securityCardPanel, Color.FromArgb(238, 245, 255));
-            StyleCard(connectCardPanel, Color.White);
-            StyleCard(fileTransferCardPanel, Color.White);
-            StyleCard(terminalCardPanel, Color.White);
-            StyleCard(recentCardPanel, Color.White);
-            StyleCard(settingsTipPanel, Color.FromArgb(235, 243, 255));
-
-            heroTitleLabel.Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold);
-            heroTitleLabel.Text = "ÄãµÄ×ÀÃæ";
-            heroTitleLabel.ForeColor = Color.White;
-            heroTitleLabel.BackColor = Color.Transparent;
-            heroSubtitleLabel.Font = new Font("Microsoft YaHei UI", 10F);
-            heroSubtitleLabel.Text = "ËæÊ±ËæµØ£¬°²È«·ÃÎÊ";
-            heroSubtitleLabel.ForeColor = Color.White;
-            heroSubtitleLabel.BackColor = Color.Transparent;
-            onlineDotLabel.BackColor = Color.FromArgb(37, 211, 102);
-            onlineStatusLabel.Font = new Font("Microsoft YaHei UI", 10F);
-            onlineStatusLabel.Text = "ÔÚÏß";
-            onlineStatusLabel.ForeColor = Color.White;
-            onlineStatusLabel.BackColor = Color.Transparent;
-            AddIcon(heroCardPanel, "knyy_xts.png", new Point(142, 42), new Size(68, 48));
-
-            lblIdTitle.Text = "ID";
-            lblIdTitle.Font = new Font("Segoe UI", 10F);
-            lblIdTitle.AutoSize = true;
-            lblIdTitle.BackColor = Color.Transparent;
-            lblIdTitle.ForeColor = Color.FromArgb(55, 65, 81);
-
-            lblId.Font = new Font("Segoe UI", 15F, FontStyle.Regular);
-            lblId.AutoSize = true;
-            lblId.BackColor = Color.Transparent;
-            lblId.ForeColor = Color.FromArgb(0, 96, 220);
-            lblId.Text = DeviceCode.GetFormatted();
-            lblId.MouseEnter += (_, _) => lblId.ForeColor = Color.FromArgb(22, 119, 255);
-            lblId.MouseLeave += (_, _) => lblId.ForeColor = Color.FromArgb(0, 96, 220);
-
-            lblPwdTitle.Text = "Ò»´ÎĞÔÃÜÂë";
-            lblPwdTitle.Font = new Font("Microsoft YaHei UI", 10F);
-            lblPwdTitle.AutoSize = true;
-            lblPwdTitle.BackColor = Color.Transparent;
-            lblPwdTitle.ForeColor = Color.FromArgb(75, 85, 99);
-
-            lblPwd.Font = new Font("Segoe UI", 19F, FontStyle.Regular);
-            lblPwd.AutoSize = true;
-            lblPwd.BackColor = Color.Transparent;
-            lblPwd.ForeColor = Color.FromArgb(0, 96, 220);
-            lblPwd.Text = "------";
-            lblPwd.MouseEnter += (_, _) => lblPwd.ForeColor = Color.FromArgb(22, 119, 255);
-            lblPwd.MouseLeave += (_, _) => lblPwd.ForeColor = Color.FromArgb(0, 96, 220);
-
-            connectionTitleLabel.BackColor = Color.Transparent;
-            connectionTitleLabel.Font = new Font("Microsoft YaHei UI", 18F, FontStyle.Bold);
-            connectionTitleLabel.ForeColor = Color.FromArgb(17, 24, 39);
-            connectionTitleLabel.Text = "Á¬½ÓÔ¶³Ì×ÀÃæ";
-            connectionHelpLabel.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
-            connectionHelpLabel.ForeColor = Color.FromArgb(107, 114, 128);
-            connectionHelpLabel.BackColor = Color.Transparent;
-
-            connectButton.Font = new Font("Microsoft YaHei UI", 16F, FontStyle.Bold);
-            connectButton.Text = "Á¬½Ó";
-            connectButton.ForeColor = Color.White;
-            connectButton.OriginalBackColor = Color.FromArgb(0, 96, 220);
-            connectButton.BackColor = Color.FromArgb(0, 96, 220);
-            connectButton.Radius = 10;
-            connectMenuButton.Font = new Font("Segoe UI", 18F);
-            connectMenuButton.Text = "v";
-            connectMenuButton.ForeColor = Color.FromArgb(15, 23, 42);
-            connectMenuButton.Radius = 10;
-
-            remoteIdInput.Text = "";
-            remoteIdInput.PlaceholderText = "ÊäÈë¶Ô·½ ID";
-            remoteIdInput.Font = new Font("Microsoft YaHei UI", 15F);
-            remoteIdInput.Radius = 10;
-            remoteIdInput.TextChanged += (_, _) => FormatRemoteIdInput();
-
-            logInput.Text = "";
-            logInput.Multiline = true;
-            logInput.Font = new Font("Consolas", 9.5F);
-            logInput.Visible = false;
-
-            StyleNavButton(remoteControlNavButton, active: true);
-            remoteControlNavButton.Text = "      Ô¶³Ì¿ØÖÆ";
-            StyleNavButton(deviceListNavButton, active: false);
-            deviceListNavButton.Text = "      Éè±¸ÁĞ±í";
-            StyleNavButton(recentNavButton, active: false);
-            recentNavButton.Text = "      ×î½üÁ¬½Ó";
-            copyIdButton.Click += (_, _) => Clipboard.SetText(DeviceCode.GetFormatted());
-            refreshPasswordButton.Click += (_, _) =>
-            {
-                if (_autoStart == null) return;
-                lblPwd.Text = _autoStart.RefreshPassword();
-            };
-            showPasswordButton.Click += (_, _) => ShowFixedPasswordDialog();
-
-            StyleFeatureCard(fileTransferIconLabel, fileTransferTitleLabel, fileTransferSubtitleLabel, Color.FromArgb(99, 102, 241));
-            fileTransferIconLabel.Text = "";
-            fileTransferTitleLabel.Text = "ÎÄ¼ş´«Êä";
-            fileTransferSubtitleLabel.Text = "°²È«¿ìËÙ´«ÊäÎÄ¼ş";
-            StyleFeatureCard(terminalIconLabel, terminalTitleLabel, terminalSubtitleLabel, Color.FromArgb(16, 185, 129));
-            terminalIconLabel.Text = "";
-            terminalTitleLabel.Text = "Ô¶³ÌÖÕ¶Ë";
-            terminalSubtitleLabel.Text = "·ÃÎÊÔ¶³ÌÃüÁîĞĞ";
-            recentTitleLabel.Font = new Font("Microsoft YaHei UI", 14F, FontStyle.Bold);
-            recentTitleLabel.Text = "×î½üÁ¬½Ó";
-            recentTitleLabel.BackColor = Color.Transparent;
-            BuildRecentList();
-            settingsTipLabel.BackColor = Color.Transparent;
-            settingsTipLabel.Text = "ÏëÒªÎŞÈËÖµÊØ·ÃÎÊ£¿ÊÔÊÔÉèÖÃ·ÃÎÊÃÜÂë";
-            settingsTipLinkLabel.BackColor = Color.Transparent;
-            settingsTipLinkLabel.Text = "Ç°ÍùÉèÖÃ >";
-            settingsTipLinkLabel.ForeColor = Color.FromArgb(0, 96, 220);
-            settingsTipPanel.Cursor = Cursors.Hand;
-            settingsTipPanel.Click += (_, _) => ShowFixedPasswordDialog();
-            settingsTipLabel.Click += (_, _) => ShowFixedPasswordDialog();
-            settingsTipLinkLabel.Click += (_, _) => ShowFixedPasswordDialog();
-
-            securityIconLabel.BackColor = Color.FromArgb(52, 211, 153);
-            securityIconLabel.ForeColor = Color.White;
-            securityIconLabel.Font = new Font("Segoe UI", 14F, FontStyle.Bold);
-            securityIconLabel.Text = "?";
-            securityTitleLabel.Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold);
-            securityTitleLabel.Text = "°²È«Á¬½ÓÒÑÆôÓÃ";
-            securityTitleLabel.BackColor = Color.Transparent;
-            securitySubtitleLabel.ForeColor = Color.FromArgb(75, 85, 99);
-            securitySubtitleLabel.Text = "¶Ëµ½¶Ë¼ÓÃÜ±£»¤ÖĞ";
-            securitySubtitleLabel.BackColor = Color.Transparent;
-            securityArrowLabel.Text = ">";
-            securityArrowLabel.BackColor = Color.Transparent;
-            AddIcon(sidebarPanel, "connect.png", new Point(38, 316), new Size(18, 18));
-            AddIcon(sidebarPanel, "device_list.png", new Point(38, 360), new Size(18, 18));
-            AddIcon(sidebarPanel, "recent.png", new Point(38, 404), new Size(18, 18));
-            AddIcon(fileTransferCardPanel, "image_transfer.png", new Point(12, 7), new Size(28, 26));
-            AddIcon(terminalCardPanel, "terminal.png", new Point(12, 7), new Size(28, 26));
-            AddIcon(securityCardPanel, "security.png", new Point(14, 13), new Size(30, 30));
+            InitSidebar();
+            InitHomeContent();
 
             CreateLoadingOverlay();
             CreateControlledNotice();
         }
 
+        /// <summary>
+        /// åˆå§‹åŒ–å·¦ä¾§æ ã€‚
+        /// Designer é‡Œé¢çš„ sidebarPanel ä¿ç•™ï¼Œåªæ¸…ç©ºæ—§æ§ä»¶ã€‚
+        /// </summary>
+        private void InitSidebar()
+        {
+            sidebarPanel.Controls.Clear();
+            sidebarPanel.Back = DotDeskUi.SidebarBackground;
+            sidebarPanel.BackColor = DotDeskUi.SidebarBackground;
+
+            _sidebar = new DotDeskSidebar
+            {
+                Dock = DockStyle.Fill
+            };
+
+            sidebarPanel.Controls.Add(_sidebar);
+            _sidebar.BringToFront();
+
+            // ID åŠ¨æ€è·å–ï¼Œä¸å†™æ­»
+            _sidebar.SetId(DeviceCode.GetFormatted());
+
+            // å¯†ç å¯åŠ¨å‰å…ˆæ˜¾ç¤ºå ä½
+            _sidebar.SetPassword("------");
+
+            _sidebar.CopyIdClicked += () =>
+            {
+                var inviteText =
+                    $"è®¾å¤‡IDï¼š{DeviceCode.GetFormatted()}\r\nä¸€æ¬¡æ€§å¯†ç ï¼š{_sidebar?.PasswordText ?? "------"}";
+
+                Clipboard.SetText(inviteText);
+
+                AppendLog("å·²å¤åˆ¶é‚€è¯·ä¿¡æ¯");
+                ShowCopyToast("å·²å¤åˆ¶é‚€è¯·ä¿¡æ¯");
+            };
+
+            _sidebar.RefreshPasswordClicked += () =>
+            {
+                if (_autoStart == null)
+                {
+                    _sidebar.SetPassword("------");
+                    AppendLog("æœåŠ¡æœªå¯åŠ¨ï¼Œæš‚æ—¶æ— æ³•åˆ·æ–°å¯†ç ");
+                    return;
+                }
+
+                var password = _autoStart.RefreshPassword();
+                _sidebar.SetPassword(password);
+                AppendLog("å·²åˆ·æ–°ä¸€æ¬¡æ€§å¯†ç ");
+            };
+
+            _sidebar.ShowPasswordClicked += () =>
+            {
+                ShowFixedPasswordDialog();
+            };
+
+            _sidebar.RemoteControlClicked += () =>
+            {
+                AppendLog("åˆ‡æ¢åˆ°è¿œç¨‹æ§åˆ¶");
+            };
+
+            _sidebar.DeviceListClicked += () =>
+            {
+                AppendLog("åˆ‡æ¢åˆ°è®¾å¤‡åˆ—è¡¨");
+            };
+
+            _sidebar.RecentClicked += () =>
+            {
+                AppendLog("åˆ‡æ¢åˆ°æœ€è¿‘è¿æ¥");
+            };
+        }
+
+        /// <summary>
+        /// åˆå§‹åŒ–å³ä¾§å†…å®¹åŒºã€‚
+        /// å³ä¾§ UI å·²ç»æŠ½ç¦»åˆ° DotDeskHomeContentã€‚
+        /// </summary>
+        private void InitHomeContent()
+        {
+            mainContentPanel.Controls.Clear();
+            mainContentPanel.Back = DotDeskUi.AppBackground;
+            mainContentPanel.BackColor = DotDeskUi.AppBackground;
+
+            _homeContent = new DotDeskHomeContent
+            {
+                Dock = DockStyle.Fill
+            };
+
+            mainContentPanel.Controls.Add(_homeContent);
+            _homeContent.BringToFront();
+
+            _homeContent.ConnectClicked += () =>
+            {
+                connectButton_Click(_homeContent, EventArgs.Empty);
+            };
+
+            _homeContent.InviteParsed += () =>
+            {
+                AppendLog("å·²è¯†åˆ«é‚€è¯·ä¿¡æ¯ï¼Œè‡ªåŠ¨è¿æ¥...");
+                BeginInvoke(() => connectButton_Click(_homeContent, EventArgs.Empty));
+            };
+
+            _homeContent.ConnectMenuClicked += () =>
+            {
+                AppendLog("ç‚¹å‡»è¿æ¥èœå•");
+            };
+
+            _homeContent.FileTransferClicked += () =>
+            {
+                AppendLog("ç‚¹å‡»æ–‡ä»¶ä¼ è¾“");
+            };
+
+            _homeContent.TerminalClicked += () =>
+            {
+                AppendLog("ç‚¹å‡»è¿œç¨‹ç»ˆç«¯");
+            };
+
+            _homeContent.SettingsClicked += () =>
+            {
+                ShowFixedPasswordDialog();
+            };
+        }
+
+        /// <summary>
+        /// åªè´Ÿè´£å·¦å³åŒºåŸŸå¤§å°ï¼Œä¸å†æ‘†æ”¾å³ä¾§æ—§æ§ä»¶ã€‚
+        /// </summary>
         private void LayoutCompactHome()
         {
-            sidebarPanel.Width = 300;
-            mainContentPanel.Location = new Point(300, 0);
-            mainContentPanel.Size = new Size(700, 560);
-            securityCardPanel.Location = new Point(24, 474);
+            sidebarPanel.Width = SidebarWidth;
+            sidebarPanel.Location = new Point(0, 0);
+            sidebarPanel.Height = Height;
+            sidebarPanel.Anchor = AnchorStyles.Left | AnchorStyles.Top | AnchorStyles.Bottom;
 
-            heroCardPanel.Location = new Point(24, 20);
-            heroCardPanel.Size = new Size(252, 116);
-            heroTitleLabel.Location = new Point(20, 18);
-            heroTitleLabel.Size = new Size(140, 28);
-            heroSubtitleLabel.Location = new Point(20, 46);
-            heroSubtitleLabel.Size = new Size(170, 22);
-            onlineDotLabel.Location = new Point(20, 78);
-            onlineStatusLabel.Location = new Point(42, 72);
-            onlineStatusLabel.Size = new Size(150, 24);
+            mainContentPanel.Location = new Point(SidebarWidth, 0);
+            mainContentPanel.Size = new Size(
+                Math.Max(100, Width - SidebarWidth),
+                Height);
 
-            deviceInfoCardPanel.Location = new Point(24, 154);
-            deviceInfoCardPanel.Size = new Size(252, 136);
-            lblIdTitle.Location = new Point(18, 14);
-            lblId.Location = new Point(18, 38);
-            lblId.Size = new Size(150, 30);
-            copyIdButton.Location = new Point(206, 40);
-            lblPwdTitle.Location = new Point(18, 72);
-            lblPwd.Location = new Point(18, 94);
-            lblPwd.Size = new Size(120, 28);
-            refreshPasswordButton.Location = new Point(178, 94);
-            showPasswordButton.Location = new Point(210, 94);
-
-            remoteControlNavButton.Location = new Point(24, 308);
-            deviceListNavButton.Location = new Point(24, 352);
-            recentNavButton.Location = new Point(24, 396);
-            foreach (var button in new[] { remoteControlNavButton, deviceListNavButton, recentNavButton })
-                button.Size = new Size(252, 38);
-
-            securityCardPanel.Location = new Point(24, 480);
-            securityCardPanel.Size = new Size(252, 60);
-            //securityIconLabel.Location = new Point(14, 13);
-            securityIconLabel.Size = new Size(30, 30);
-            //securityTitleLabel.Location = new Point(56, 8);
-            securityTitleLabel.Size = new Size(126, 22);
-            securitySubtitleLabel.Visible = true;
-            //securitySubtitleLabel.Location = new Point(56, 30);
-            securitySubtitleLabel.Size = new Size(126, 20);
-            securityArrowLabel.Location = new Point(222, 17);
-
-            connectCardPanel.Location = new Point(34, 30);
-            connectCardPanel.Size = new Size(632, 184);
-            connectionTitleLabel.Location = new Point(28, 22);
-            connectionTitleLabel.Size = new Size(180, 34);
-            connectionHelpLabel.Location = new Point(192, 28);
-            remoteIdInput.Location = new Point(28, 66);
-            remoteIdInput.Size = new Size(396, 50);
-            connectButton.Location = new Point(434, 66);
-            connectButton.Size = new Size(106, 50);
-            connectMenuButton.Location = new Point(552, 66);
-            connectMenuButton.Size = new Size(52, 48);
-            fileTransferCardPanel.Location = new Point(28, 130);
-            fileTransferCardPanel.Size = new Size(276, 40);
-            terminalCardPanel.Location = new Point(328, 130);
-            terminalCardPanel.Size = new Size(276, 40);
-            fileTransferIconLabel.Location = new Point(12, 7);
-            fileTransferIconLabel.Size = new Size(26, 24);
-            fileTransferTitleLabel.Location = new Point(52, 4);
-            fileTransferSubtitleLabel.Location = new Point(52, 22);
-            fileTransferSubtitleLabel.Visible = true;
-            terminalIconLabel.Location = new Point(12, 7);
-            terminalIconLabel.Size = new Size(26, 24);
-            terminalTitleLabel.Location = new Point(52, 4);
-            terminalSubtitleLabel.Location = new Point(52, 22);
-            terminalSubtitleLabel.Visible = true;
-
-            recentCardPanel.Location = new Point(34, 232);
-            recentCardPanel.Size = new Size(632, 230);
-            recentTitleLabel.Location = new Point(22, 16);
-            logInput.Location = new Point(22, 50);
-            logInput.Size = new Size(588, 148);
-
-            settingsTipPanel.Location = new Point(34, 482);
-            settingsTipPanel.Size = new Size(632, 44);
-            settingsTipLabel.Location = new Point(18, 10);
-            settingsTipLabel.Size = new Size(390, 22);
-            settingsTipLinkLabel.Location = new Point(516, 11);
-            settingsTipLinkLabel.Size = new Size(94, 22);
-            BuildRecentList();
+            mainContentPanel.Anchor =
+                AnchorStyles.Left |
+                AnchorStyles.Top |
+                AnchorStyles.Right |
+                AnchorStyles.Bottom;
         }
 
-        private static void StyleCard(AntdUI.Panel panel, Color backColor)
-        {
-            panel.Back = backColor;
-            panel.BackColor = backColor;
-            panel.Radius = 16;
-            panel.Shadow = 8;
-            panel.ShadowColor = Color.FromArgb(148, 163, 184);
-            panel.ShadowOpacity = 0.16F;
-            panel.ShadowOffsetX = 0;
-            panel.ShadowOffsetY = 4;
-        }
-
-        private static void StyleNavButton(AntdUI.Button button, bool active)
-        {
-            button.TextAlign = ContentAlignment.MiddleLeft;
-            button.Font = new Font("Microsoft YaHei UI", 10.5F, active ? FontStyle.Bold : FontStyle.Regular);
-            button.ForeColor = active ? Color.FromArgb(0, 96, 220) : Color.FromArgb(55, 65, 81);
-            button.OriginalBackColor = active ? Color.FromArgb(234, 242, 255) : Color.White;
-            button.Radius = 8;
-        }
-
-        private static void StyleFeatureCard(AntdUI.Label icon, AntdUI.Label title, AntdUI.Label subtitle, Color iconColor)
-        {
-            icon.BackColor = iconColor;
-            icon.ForeColor = Color.White;
-            icon.Font = new Font("Segoe UI", 16F, FontStyle.Bold);
-            title.Font = new Font("Microsoft YaHei UI", 10.5F, FontStyle.Bold);
-            title.BackColor = Color.Transparent;
-            subtitle.ForeColor = Color.FromArgb(107, 114, 128);
-            subtitle.BackColor = Color.Transparent;
-        }
-
-        private void AddIcon(Control parent, string fileName, Point location, Size size, bool sendToBack = false)
-        {
-            var icon = CreateIcon(fileName, location, size);
-            _runtimeIcons.Add(icon);
-            parent.Controls.Add(icon);
-            if (sendToBack) icon.SendToBack(); else icon.BringToFront();
-        }
-
-        private static PictureBox CreateIcon(string fileName, Point location, Size size) => new()
-        {
-            BackColor = Color.Transparent,
-            Image = LoadImage(fileName),
-            Location = location,
-            Size = size,
-            SizeMode = PictureBoxSizeMode.Zoom
-        };
-
-        private static Image? LoadImage(string fileName)
-        {
-            var path = Path.Combine(AppContext.BaseDirectory, "Resources", fileName);
-            return File.Exists(path) ? Image.FromFile(path) : null;
-        }
-
-        private void BuildRecentList()
-        {
-            for (int i = recentCardPanel.Controls.Count - 1; i >= 0; i--)
-            {
-                if (Equals(recentCardPanel.Controls[i].Tag, "recent-preview"))
-                    recentCardPanel.Controls.RemoveAt(i);
-            }
-
-            var records = DotDeskSettingsStore.Load().RecentConnections
-                .OrderByDescending(x => x.LastConnectedAt)
-                .Take(3)
-                .ToList();
-
-            for (var i = 0; i < records.Count; i++)
-            {
-                var item = records[i];
-                var name = string.IsNullOrWhiteSpace(item.Name) ? $"Ô¶³ÌÉè±¸ {item.DisplayCode}" : item.Name;
-                var address = string.IsNullOrWhiteSpace(item.Address) ? item.DisplayCode : item.Address;
-                AddRecentRow(name, address, FormatRecentTime(item.LastConnectedAt), GetRecentIcon(name), GetRecentColor(i), 54 + i * 50);
-            }
-        }
-
-        private void AddRecentRow(string name, string address, string time, string icon, Color iconColor, int y)
-        {
-            var row = new System.Windows.Forms.Panel
-            {
-                Tag = "recent-preview",
-                BackColor = Color.White,
-                Location = new Point(22, y),
-                Size = new Size(Math.Max(520, recentCardPanel.Width - 44), 42)
-            };
-
-            var iconLabel = new System.Windows.Forms.Label
-            {
-                BackColor = iconColor,
-                ForeColor = Color.White,
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                Text = icon,
-                TextAlign = ContentAlignment.MiddleCenter,
-                Location = new Point(12, 7),
-                Size = new Size(28, 28)
-            };
-
-            var nameLabel = new System.Windows.Forms.Label
-            {
-                BackColor = Color.Transparent,
-                ForeColor = Color.FromArgb(17, 24, 39),
-                Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold),
-                Text = name,
-                Location = new Point(54, 4),
-                Size = new Size(210, 20)
-            };
-
-            var addressLabel = new System.Windows.Forms.Label
-            {
-                BackColor = Color.Transparent,
-                ForeColor = Color.FromArgb(107, 114, 128),
-                Font = new Font("Segoe UI", 9F),
-                Text = address,
-                Location = new Point(54, 22),
-                Size = new Size(180, 18)
-            };
-
-            var timeLabel = new System.Windows.Forms.Label
-            {
-                BackColor = Color.Transparent,
-                ForeColor = Color.FromArgb(107, 114, 128),
-                Font = new Font("Microsoft YaHei UI", 8.5F),
-                Text = time,
-                TextAlign = ContentAlignment.MiddleRight,
-                Location = new Point(row.Width - 150, 12),
-                Size = new Size(104, 20),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-
-            var moreLabel = new System.Windows.Forms.Label
-            {
-                BackColor = Color.Transparent,
-                ForeColor = Color.FromArgb(75, 85, 99),
-                Font = new Font("Segoe UI", 12F, FontStyle.Bold),
-                Text = "...",
-                TextAlign = ContentAlignment.MiddleCenter,
-                Location = new Point(row.Width - 38, 8),
-                Size = new Size(24, 24),
-                Anchor = AnchorStyles.Top | AnchorStyles.Right
-            };
-
-            row.Controls.Add(iconLabel);
-            row.Controls.Add(nameLabel);
-            row.Controls.Add(addressLabel);
-            row.Controls.Add(timeLabel);
-            row.Controls.Add(moreLabel);
-            recentCardPanel.Controls.Add(row);
-            row.BringToFront();
-        }
-
-        // ©¤©¤ ±»¿Ø¶Ë×Ô¶¯Æô¶¯ ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+        // â”€â”€ è¢«æ§ç«¯è‡ªåŠ¨å¯åŠ¨ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private async Task InitAutoStartAsync()
         {
-            if (_autoStartInitialized) return;
+            if (_autoStartInitialized)
+                return;
+
             _autoStartInitialized = true;
 
             var screen = Screen.PrimaryScreen!;
-            SetStatus("¼ì²â·şÎñÆ÷Á¬½Ó...");
-            AppendLog("¼ì²â·şÎñÆ÷Á¬½Ó...");
+
+            SetStatus("æ£€æµ‹æœåŠ¡å™¨è¿æ¥...");
+            AppendLog("æ£€æµ‹æœåŠ¡å™¨è¿æ¥...");
 
             var serverStatus = await DeviceChecker.CheckServerAsync(SERVER_HTTP);
             _lastServerLatencyMs = serverStatus.ServerLatencyMs;
+
             if (!serverStatus.Reachable)
             {
                 _autoStartInitialized = false;
-                var error = serverStatus.Error ?? "·şÎñÆ÷²»¿É´ï";
-                SetStatus($"Á¬½ÓÊ§°Ü: {error}");
-                AppendLog($"·şÎñÆ÷Á¬½ÓÊ§°Ü: {error}");
+
+                var error = serverStatus.Error ?? "æœåŠ¡å™¨ä¸å¯è¾¾";
+                SetStatus($"è¿æ¥å¤±è´¥: {error}");
+                AppendLog($"æœåŠ¡å™¨è¿æ¥å¤±è´¥: {error}");
                 ShowOfflineOverlay(error);
                 return;
             }
 
             HideOfflineOverlay();
+
             _autoStart = new AutoStartService(SERVER_WS);
             _autoStart.OnLog += msg => AppendLog(msg);
             _autoStart.OnStatusChanged += status => SetStatus(status);
-            _autoStart.OnFpsUpdate += fps => SetStatus($"ÍÆÁ÷ÖĞ {fps:F1} fps");
+            _autoStart.OnFpsUpdate += fps => SetStatus($"æ¨æµä¸­ {fps:F1} fps");
 
             _autoStart.OnConnected += () => BeginInvoke(() =>
             {
-                SetStatus("¿ØÖÆ¶ËÒÑÁ¬½Ó");
+                SetStatus("æ§åˆ¶ç«¯å·²è¿æ¥");
                 ShowControlledNotice();
-                UpdatePassword();  // Á¬½Ó³É¹¦ºóË¢ĞÂÃÜÂë
+                ShowLatencyFlashWindow();
+                UpdatePassword();
             });
 
             _autoStart.OnDisconnected += () => BeginInvoke(() =>
             {
-                SetStatus("µÈ´ı¿ØÖÆ¶ËÁ¬½Ó...");
+                SetStatus("ç­‰å¾…æ§åˆ¶ç«¯è¿æ¥...");
                 HideControlledNotice();
+                CloseLatencyFlashWindow();
                 UpdatePassword();
             });
 
@@ -496,47 +282,59 @@ namespace DotDesk.App
             catch (Exception ex)
             {
                 _autoStartInitialized = false;
-                var error = $"ÎŞ·¨Á¬½ÓĞÅÁî·şÎñÆ÷: {ex.Message}";
-                SetStatus($"Á¬½ÓÊ§°Ü: {error}");
+
+                var error = $"æ— æ³•è¿æ¥ä¿¡ä»¤æœåŠ¡å™¨: {ex.Message}";
+                SetStatus($"è¿æ¥å¤±è´¥: {error}");
                 AppendLog(error);
                 ShowOfflineOverlay(error);
                 return;
             }
-            // Æô¶¯ºóÏÔÊ¾ÃÜÂë
+
             BeginInvoke(() => UpdatePassword());
         }
 
-        // ©¤©¤ Á¬½Ó°´Å¥£¨¿ØÖÆ¶Ë£©©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+        // â”€â”€ è¿æ¥æŒ‰é’®ï¼ˆæ§åˆ¶ç«¯ï¼‰â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private async void connectButton_Click(object sender, EventArgs e)
         {
-            if (_connecting) return;
+            if (_connecting)
+                return;
 
-            var code = DeviceCode.Normalize(remoteIdInput.Text);
+            var code = DeviceCode.Normalize(_homeContent?.RemoteIdText ?? "");
+
             if (code.Length != 9)
             {
-                AppendLog("?? ÇëÊäÈë9Î»Éè±¸Âë");
+                AppendLog("è¯·è¾“å…¥ 9 ä½è®¾å¤‡ç ");
                 return;
             }
 
             if (code == DeviceCode.Get())
             {
-                AppendLog("?? ²»ÄÜÔ¶³ÌÁ¬½Ó±¾»ú£¬ÇëÊäÈëÁíÒ»Ì¨Éè±¸µÄID");
-                MessageBox.Show(FindForm(), "²»ÄÜÔ¶³ÌÁ¬½Ó±¾»ú£¬ÇëÊäÈëÁíÒ»Ì¨Éè±¸µÄID¡£", "ÌáÊ¾",
-                    MessageBoxButtons.OK, MessageBoxIcon.Information);
+                AppendLog("ä¸èƒ½è¿œç¨‹è¿æ¥æœ¬æœºï¼Œè¯·è¾“å…¥å¦ä¸€å°è®¾å¤‡çš„ ID");
+
+                MessageBox.Show(
+                    FindForm(),
+                    "ä¸èƒ½è¿œç¨‹è¿æ¥æœ¬æœºï¼Œè¯·è¾“å…¥å¦ä¸€å°è®¾å¤‡çš„IDã€‚",
+                    "æç¤º",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Information);
+
                 return;
             }
 
             _connecting = true;
-            connectButton.Enabled = false;
-            AppendLog("¼ì²â·şÎñÆ÷Á¬½Ó...");
+            _homeContent?.SetConnectEnabled(false);
+
+            AppendLog("æ£€æµ‹æœåŠ¡å™¨è¿æ¥...");
 
             var serverStatus = await DeviceChecker.CheckServerAsync(SERVER_HTTP);
             _lastServerLatencyMs = serverStatus.ServerLatencyMs;
+
             if (!serverStatus.Reachable)
             {
-                var error = serverStatus.Error ?? "·şÎñÆ÷²»¿É´ï";
-                AppendLog($"·şÎñÆ÷Á¬½ÓÊ§°Ü: {error}");
+                var error = serverStatus.Error ?? "æœåŠ¡å™¨ä¸å¯è¾¾";
+
+                AppendLog($"æœåŠ¡å™¨è¿æ¥å¤±è´¥: {error}");
                 ShowOfflineOverlay(error);
                 Reset();
                 return;
@@ -544,86 +342,119 @@ namespace DotDesk.App
 
             HideOfflineOverlay();
 
-            using var passwordDialog = new PasswordDialog();
-            if (passwordDialog.ShowDialog(FindForm()) != DialogResult.OK)
+            string? invitePassword = _homeContent?.PendingInvitePassword;
+            string password;
+            if (!string.IsNullOrWhiteSpace(invitePassword) && invitePassword.Length == 6)
             {
-                Reset();
-                return;
+                password = _homeContent!.ConsumePendingInvitePassword()!;
+                AppendLog("å·²ä»é‚€è¯·ä¿¡æ¯è¯»å–å¯†ç ");
+            }
+            else
+            {
+                using var passwordDialog = new PasswordDialog();
+
+                if (passwordDialog.ShowDialog(FindForm()) != DialogResult.OK)
+                {
+                    Reset();
+                    return;
+                }
+
+                if (!string.IsNullOrWhiteSpace(passwordDialog.InviteDeviceCode)
+                    && passwordDialog.InviteDeviceCode != code)
+                {
+                    code = passwordDialog.InviteDeviceCode;
+                    AppendLog("å·²ä»é‚€è¯·ä¿¡æ¯åˆ‡æ¢ç›®æ ‡è®¾å¤‡");
+                    if (code == DeviceCode.Get())
+                    {
+                        AppendLog("ä¸èƒ½è¿œç¨‹è¿æ¥æœ¬æœºï¼Œè¯·è¾“å…¥å¦ä¸€å°è®¾å¤‡çš„ ID");
+                        Reset();
+                        return;
+                    }
+                }
+
+                password = passwordDialog.Password;
             }
 
-            var password = passwordDialog.Password;
+            AppendLog($"æŸ¥è¯¢è®¾å¤‡ {code}...");
 
-            AppendLog($"²éÑ¯Éè±¸ {code}...");
-
-            // Step1£º²éÑ¯Éè±¸ÊÇ·ñÔÚÏß
             var status = await DeviceChecker.CheckAsync(SERVER_HTTP, code);
-            AppLogger.Log("HomePage", $"²éÑ¯½á¹û: Online={status.Online} Error={status.Error}");
+            AppLogger.Log("HomePage", $"æŸ¥è¯¢ç»“æœ: Online={status.Online} Error={status.Error}");
             _lastServerLatencyMs = status.ServerLatencyMs;
 
             if (!status.Online)
             {
-                AppendLog($"? Éè±¸²»ÔÚÏß£¨{status.Error ?? "ÎŞÏìÓ¦"}£©");
+                AppendLog($"è®¾å¤‡ä¸åœ¨çº¿ï¼ˆ{status.Error ?? "æ— å“åº”"}ï¼‰");
                 Reset();
                 return;
             }
 
-            AppendLog("? Éè±¸ÔÚÏß£¬ÑéÖ¤ÃÜÂë...");
+            AppendLog("è®¾å¤‡åœ¨çº¿ï¼ŒéªŒè¯å¯†ç ...");
 
-            // Step2£º´´½¨½ÓÊÕÆ÷
             _receiver = new WebRtcReceiver(SERVER_WS, code);
             _receiver.OnLog += msg => AppendLog(msg);
-            _receiver.OnConnectionStatus += status => BeginInvoke(() =>
+
+            _receiver.OnConnectionStatus += statusText => BeginInvoke(() =>
             {
-                AppendLog($"Á¬½Ó×´Ì¬£º{status}");
-                ShowLoading(status, status.Contains("ÖĞ¼Ì") ? "P2PÊ§°Ü£¬ÕıÔÚÊ¹ÓÃTURN¶µµ×..." : "ÕıÔÚ³¢ÊÔÖ±Á¬...");
+                AppendLog($"è¿æ¥çŠ¶æ€ï¼š{statusText}");
+
+                ShowLoading(
+                    statusText,
+                    statusText.Contains("ä¸­ç»§")
+                        ? "P2På¤±è´¥ï¼Œæ­£åœ¨ä½¿ç”¨TURNå…œåº•..."
+                        : "æ­£åœ¨å°è¯•ç›´è¿...");
             });
+
             _receiver.OnConnectionFailed += msg => BeginInvoke(() =>
             {
-                AppendLog($"? {msg}");
-                MessageBox.Show(FindForm(),
-                    $"{msg}\r\n\r\nµ±Ç°ÒÑ½ûÓÃ·şÎñÆ÷ÖĞ¼Ì£¬Ö»ÔÊĞíÖ±Á¬ P2P¡£",
-                    "Á¬½ÓÊ§°Ü",
+                AppendLog(msg);
+                HideLoading();
+                CleanUpAsync();
+                Reset();
+
+                MessageBox.Show(
+                    FindForm(),
+                    $"{msg}\r\n\r\nå·²å°è¯• TURN ä¸­ç»§å…œåº•ï¼Œä½†ä¸­ç»§è¿æ¥æœªå»ºç«‹ã€‚DataChannelDotnet/libjuice éœ€è¦æ ‡å‡† TURN long-term credentialï¼›è¯·ç¡®è®¤æœåŠ¡å™¨å¯ç”¨ lt-cred-mechã€user=dotdesk:DotDesk2025ï¼Œä¸” Allocate å“åº”åŒ…å« MESSAGE-INTEGRITYã€‚",
+                    "è¿æ¥å¤±è´¥",
                     MessageBoxButtons.OK,
                     MessageBoxIcon.Warning);
             });
 
-            // Step3£ºÃÜÂëÑéÖ¤½á¹û
             _receiver.OnAuthSuccess += () => BeginInvoke(() =>
             {
-                AppendLog("? ÃÜÂëÑéÖ¤Í¨¹ı£¬½¨Á¢Á¬½Ó...");
-                ShowLoading("ÃÜÂëÑéÖ¤³É¹¦", "ÕıÔÚ½¨Á¢Ô¶³Ì×ÀÃæÁ¬½Ó...");
+                AppendLog("å¯†ç éªŒè¯é€šè¿‡ï¼Œå»ºç«‹è¿æ¥...");
+                ShowLoading("å¯†ç éªŒè¯æˆåŠŸ", "æ­£åœ¨å»ºç«‹è¿œç¨‹æ¡Œé¢è¿æ¥...");
             });
 
             _receiver.OnAuthFailed += () => BeginInvoke(() =>
             {
-                AppendLog("? ÃÜÂë´íÎó£¬Á¬½ÓÒÑ¾Ü¾ø");
+                AppendLog("å¯†ç é”™è¯¯ï¼Œè¿æ¥å·²æ‹’ç»");
                 HideLoading();
                 CleanUpAsync();
                 Reset();
             });
 
-            // Step4£ºP2P ½¨Á¢³É¹¦
             _receiver.OnConnected += () => BeginInvoke(() =>
             {
-                AppendLog("? Á¬½Ó³É¹¦£¬´ò¿ªÔ¶³Ì×ÀÃæ");
+                AppendLog("è¿æ¥æˆåŠŸï¼Œæ‰“å¼€è¿œç¨‹æ¡Œé¢");
                 HideLoading();
-                connectButton.Enabled = true;
+
+                _homeContent?.SetConnectEnabled(true);
                 _connecting = false;
+
                 ShowRemoteDesktop(code);
             });
 
             _receiver.OnDisconnected += () => BeginInvoke(() =>
             {
-                AppendLog("?? Á¬½ÓÒÑ¶Ï¿ª");
+                AppendLog("è¿æ¥å·²æ–­å¼€");
                 HideLoading();
                 CleanUpAsync();
                 Reset();
             });
 
-            // Step5£ºÁ¬½ÓĞÅÁî£¬Á¬ÉÏºó·¢ËÍÃÜÂë
             _receiver.OnPeerJoined2 += () => BeginInvoke(() =>
             {
-                AppendLog("·¢ËÍÃÜÂëÑéÖ¤...");
+                AppendLog("å‘é€å¯†ç éªŒè¯...");
                 _receiver?.SendPassword(password);
             });
 
@@ -633,37 +464,71 @@ namespace DotDesk.App
             }
             catch (Exception ex)
             {
-                AppendLog($"? Á¬½ÓÊ§°Ü£º{ex.Message}");
+                AppendLog($"è¿æ¥å¤±è´¥ï¼š{ex.Message}");
                 HideLoading();
                 CleanUpAsync();
                 Reset();
             }
         }
 
-        // ©¤©¤ µ¯³öÔ¶³Ì×ÀÃæ ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+        // â”€â”€ å¼¹å‡ºè¿œç¨‹æ¡Œé¢ â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private void ShowRemoteDesktop(string deviceCode)
         {
-            var remoteName = _receiver?.RemoteDeviceName;
-            DotDeskSettingsStore.AddRecentConnection(deviceCode, remoteName, DotDeskSettingsStore.FormatCode(deviceCode));
-            BuildRecentList();
-
-            var form = new RemoteDesktopControl(_receiver!, deviceCode, remoteName, _lastServerLatencyMs);
-            form.FormClosed += (_, _) =>
+            try
             {
-                AppendLog("Ô¶³Ì×ÀÃæÒÑ¹Ø±Õ");
+                var remoteName = _receiver?.RemoteDeviceName;
+
+                DotDeskSettingsStore.AddRecentConnection(
+                    deviceCode,
+                    remoteName,
+                    DotDeskSettingsStore.FormatCode(deviceCode));
+
+                _homeContent?.RefreshRecentList();
+
+                var form = new RemoteDesktopControl(
+                    _receiver!,
+                    deviceCode,
+                    remoteName,
+                    _lastServerLatencyMs);
+
+                form.FormClosed += (_, _) =>
+                {
+                    AppendLog("è¿œç¨‹æ¡Œé¢å·²å…³é—­");
+                    CleanUpAsync();
+                    Reset();
+                };
+
+                form.Show(this.FindForm());
+                form.Activate();
+                form.BringToFront();
+            }
+            catch (Exception ex)
+            {
+                AppendLog($"æ‰“å¼€è¿œç¨‹æ¡Œé¢å¤±è´¥ï¼š{ex.Message}");
+                AppLogger.Log("HomePage", $"ShowRemoteDesktop failed: {ex}");
+                MessageBox.Show(
+                    FindForm(),
+                    $"æ‰“å¼€è¿œç¨‹æ¡Œé¢å¤±è´¥ï¼š{ex.Message}",
+                    "è¿æ¥å¤±è´¥",
+                    MessageBoxButtons.OK,
+                    MessageBoxIcon.Warning);
                 CleanUpAsync();
                 Reset();
-            };
-            form.Show();
+            }
         }
 
-        // ©¤©¤ ¸¨Öú·½·¨ ©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤©¤
+        // â”€â”€ è¾…åŠ©æ–¹æ³• â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
         private void UpdatePassword()
         {
-            if (_autoStart == null) return;
-            lblPwd.Text = _autoStart.Password;
+            if (_autoStart == null)
+            {
+                _sidebar?.SetPassword("------");
+                return;
+            }
+
+            _sidebar?.SetPassword(_autoStart.Password);
         }
 
         private void SetStatus(string status)
@@ -674,14 +539,15 @@ namespace DotDesk.App
                 return;
             }
 
-            onlineStatusLabel.Text = status;
-            if (status.StartsWith("Á¬½ÓÊ§°Ü", StringComparison.Ordinal))
+            // å·¦ä¸Šè“è‰²å¡ç‰‡å›ºå®šæ˜¾ç¤ºï¼š
+            // ä½ çš„æ¡Œé¢ / éšæ—¶éšåœ°ï¼Œå®‰å…¨è®¿é—® / åœ¨çº¿
+            // ä¸æ˜¾ç¤ºâ€œç­‰å¾…æ§åˆ¶ç«¯ / æ§åˆ¶ç«¯å·²è¿æ¥ / æ¨æµä¸­â€ç­‰çŠ¶æ€ã€‚
+
+            if (status.StartsWith("è¿æ¥å¤±è´¥", StringComparison.Ordinal))
             {
                 ShowOfflineOverlay(status);
             }
-            else if (status.Contains("µÈ´ı¿ØÖÆ¶Ë", StringComparison.Ordinal) ||
-                     status.Contains("¿ØÖÆ¶ËÒÑÁ¬½Ó", StringComparison.Ordinal) ||
-                     status.Contains("ÍÆÁ÷ÖĞ", StringComparison.Ordinal))
+            else
             {
                 HideOfflineOverlay();
             }
@@ -689,8 +555,11 @@ namespace DotDesk.App
 
         private void CleanUp()
         {
+            CloseLatencyFlashWindow();
             var receiver = Interlocked.Exchange(ref _receiver, null);
-            if (receiver == null) return;
+
+            if (receiver == null)
+                return;
 
             receiver.Disconnect();
             receiver.Dispose();
@@ -699,78 +568,53 @@ namespace DotDesk.App
         private void CleanUpAsync()
         {
             var receiver = Interlocked.Exchange(ref _receiver, null);
-            if (receiver == null) return;
+
+            if (receiver == null)
+                return;
 
             _ = Task.Run(() =>
             {
-                try { receiver.Disconnect(); } catch { }
-                try { receiver.Dispose(); } catch { }
+                try
+                {
+                    receiver.Disconnect();
+                }
+                catch
+                {
+                }
+
+                try
+                {
+                    receiver.Dispose();
+                }
+                catch
+                {
+                }
             });
         }
 
         private void Reset()
         {
             _connecting = false;
-            connectButton.Enabled = true;
+            _homeContent?.SetConnectEnabled(true);
             HideLoading();
-        }
-
-        private void FormatRemoteIdInput()
-        {
-            if (_formattingRemoteId) return;
-
-            var digits = new string((remoteIdInput.Text ?? "").Where(char.IsDigit).Take(9).ToArray());
-            var formatted = digits.Length <= 3
-                ? digits
-                : digits.Length <= 6
-                    ? $"{digits[..3]} {digits[3..]}"
-                    : $"{digits[..3]} {digits[3..6]} {digits[6..]}";
-
-            if (formatted == remoteIdInput.Text) return;
-
-            _formattingRemoteId = true;
-            remoteIdInput.Text = formatted;
-            remoteIdInput.SelectionStart = remoteIdInput.Text.Length;
-            _formattingRemoteId = false;
         }
 
         private void ShowFixedPasswordDialog()
         {
             using var dialog = new FixedPasswordDialog(DotDeskSettingsStore.Load().FixedPassword);
-            if (dialog.ShowDialog(FindForm()) != DialogResult.OK) return;
+
+            if (dialog.ShowDialog(FindForm()) != DialogResult.OK)
+                return;
 
             var fixedPassword = DotDeskSettingsStore.UpdateFixedPassword(dialog.FixedPassword);
-            lblPwd.Text = _autoStart?.SetFixedPassword(fixedPassword) ?? "------";
+            var password = _autoStart?.SetFixedPassword(fixedPassword) ?? "------";
 
-            AppendLog(fixedPassword == null ? "ÒÑ»Ö¸´Ëæ»úÁÙÊ±ÃÜÂë" : "ÒÑÉèÖÃ¹Ì¶¨·ÃÎÊÃÜÂë");
+            _sidebar?.SetPassword(password);
+
+            AppendLog(fixedPassword == null
+                ? "å·²æ¢å¤éšæœºä¸´æ—¶å¯†ç "
+                : "å·²è®¾ç½®å›ºå®šè®¿é—®å¯†ç ");
         }
-
-        private static string FormatRecentTime(DateTime time)
-        {
-            var now = DateTime.Now;
-            if (time.Date == now.Date) return $"½ñÌì {time:HH:mm}";
-            if (time.Date == now.Date.AddDays(-1)) return $"×òÌì {time:HH:mm}";
-            var days = (now.Date - time.Date).Days;
-            return days is > 1 and < 7 ? $"{days} ÌìÇ°" : time.ToString("MM-dd HH:mm");
-        }
-
-        private static string GetRecentIcon(string name)
-        {
-            if (string.IsNullOrWhiteSpace(name)) return "D";
-            foreach (var ch in name)
-            {
-                if (char.IsLetterOrDigit(ch))
-                    return ch.ToString().ToUpperInvariant();
-            }
-            return "D";
-        }
-
-        private static Color GetRecentColor(int index) => (index % 3) switch
-        {
-            0 => Color.FromArgb(37, 99, 235),
-            1 => Color.FromArgb(16, 185, 129),
-            _ => Color.FromArgb(124, 58, 237)
-        };
 
         private void CreateLoadingOverlay()
         {
@@ -788,7 +632,7 @@ namespace DotDesk.App
                 ForeColor = Color.FromArgb(30, 41, 59),
                 Location = new Point(0, 196),
                 Size = new Size(mainContentPanel.Width, 34),
-                Text = "ÕıÔÚÁ¬½Ó",
+                Text = "æ­£åœ¨è¿æ¥",
                 TextAlign = ContentAlignment.MiddleCenter
             };
 
@@ -799,7 +643,7 @@ namespace DotDesk.App
                 ForeColor = Color.FromArgb(100, 116, 139),
                 Location = new Point(0, 236),
                 Size = new Size(mainContentPanel.Width, 28),
-                Text = "ÕıÔÚ½¨Á¢Ô¶³Ì×ÀÃæÁ¬½Ó...",
+                Text = "æ­£åœ¨å»ºç«‹è¿œç¨‹æ¡Œé¢è¿æ¥...",
                 TextAlign = ContentAlignment.MiddleCenter
             };
 
@@ -814,6 +658,7 @@ namespace DotDesk.App
             _loadingOverlay.Controls.Add(_loadingTitle);
             _loadingOverlay.Controls.Add(_loadingSubtitle);
             _loadingOverlay.Controls.Add(_loadingProgress);
+
             mainContentPanel.Controls.Add(_loadingOverlay);
             _loadingOverlay.BringToFront();
 
@@ -835,21 +680,40 @@ namespace DotDesk.App
         public async Task RetryNetworkAsync()
         {
             _autoStartInitialized = false;
+
             _autoStart?.Dispose();
             _autoStart = null;
+
+            _sidebar?.SetPassword("------");
+
             await InitAutoStartAsync();
         }
 
-        private async Task RetryAutoStartAsync() => await RetryNetworkAsync();
+        private async Task RetryAutoStartAsync()
+        {
+            await RetryNetworkAsync();
+        }
 
         private void LayoutLoadingOverlay()
         {
-            if (_loadingTitle == null || _loadingSubtitle == null || _loadingProgress == null) return;
+            if (_loadingTitle == null ||
+                _loadingSubtitle == null ||
+                _loadingProgress == null)
+            {
+                return;
+            }
 
             _loadingTitle.Width = mainContentPanel.Width;
             _loadingSubtitle.Width = mainContentPanel.Width;
-            _loadingTitle.Location = new Point(0, Math.Max(120, mainContentPanel.Height / 2 - 76));
-            _loadingSubtitle.Location = new Point(0, _loadingTitle.Bottom + 8);
+
+            _loadingTitle.Location = new Point(
+                0,
+                Math.Max(120, mainContentPanel.Height / 2 - 76));
+
+            _loadingSubtitle.Location = new Point(
+                0,
+                _loadingTitle.Bottom + 8);
+
             _loadingProgress.Location = new Point(
                 Math.Max(24, (mainContentPanel.Width - _loadingProgress.Width) / 2),
                 _loadingSubtitle.Bottom + 24);
@@ -860,7 +724,7 @@ namespace DotDesk.App
             _controlledNoticePanel = new System.Windows.Forms.Panel
             {
                 BackColor = Color.FromArgb(235, 245, 255),
-                Location = new Point(24, 6),
+                Location = new Point(24, ContentTopOffset + 6),
                 Size = new Size(592, 48),
                 Visible = false
             };
@@ -885,7 +749,7 @@ namespace DotDesk.App
                 Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold),
                 Location = new Point(54, 7),
                 Size = new Size(340, 22),
-                Text = "ÕıÔÚ±»Ô¶³Ì¿ØÖÆ"
+                Text = "æ­£åœ¨è¢«è¿œç¨‹æ§åˆ¶"
             };
 
             _controlledNoticeSubtitle = new System.Windows.Forms.Label
@@ -896,7 +760,7 @@ namespace DotDesk.App
                 Font = new Font("Microsoft YaHei UI", 8.5F),
                 Location = new Point(54, 27),
                 Size = new Size(360, 18),
-                Text = "µ±Ç°×ÀÃæÕıÔÚ¹²Ïí£¬ÇëÎğÊäÈëÃô¸ĞĞÅÏ¢¡£"
+                Text = "å½“å‰æ¡Œé¢æ­£åœ¨å…±äº«ï¼Œè¯·å‹¿è¾“å…¥æ•æ„Ÿä¿¡æ¯ã€‚"
             };
 
             var stopHint = new System.Windows.Forms.Label
@@ -907,7 +771,7 @@ namespace DotDesk.App
                 Font = new Font("Microsoft YaHei UI", 9F, FontStyle.Bold),
                 Location = new Point(430, 14),
                 Size = new Size(136, 22),
-                Text = "¹Ø±Õ³ÌĞò¿É¶Ï¿ª",
+                Text = "å…³é—­ç¨‹åºå¯æ–­å¼€",
                 TextAlign = ContentAlignment.MiddleRight
             };
 
@@ -915,41 +779,74 @@ namespace DotDesk.App
             _controlledNoticePanel.Controls.Add(_controlledNoticeTitle);
             _controlledNoticePanel.Controls.Add(_controlledNoticeSubtitle);
             _controlledNoticePanel.Controls.Add(stopHint);
+
             mainContentPanel.Controls.Add(_controlledNoticePanel);
             _controlledNoticePanel.BringToFront();
         }
 
         private void ShowControlledNotice()
         {
-            if (_controlledNoticePanel == null) return;
+            if (_controlledNoticePanel == null)
+                return;
 
             _controlledNoticePanel.Visible = true;
             _controlledNoticePanel.BringToFront();
-            AppendLog("?? µ±Ç°Éè±¸ÕıÔÚ±»Ô¶³Ì¿ØÖÆ");
+
+            AppendLog("å½“å‰è®¾å¤‡æ­£åœ¨è¢«è¿œç¨‹æ§åˆ¶");
         }
 
         private void HideControlledNotice()
         {
-            if (_controlledNoticePanel == null) return;
+            if (_controlledNoticePanel == null)
+                return;
 
             _controlledNoticePanel.Visible = false;
         }
 
+        private void ShowLatencyFlashWindow()
+        {
+            if (_latencyFlashWindow is { IsDisposed: false })
+                return;
+
+            _latencyFlashWindow = new LatencyFlashWindow();
+            _latencyFlashWindow.Show(FindForm());
+        }
+
+        private void CloseLatencyFlashWindow()
+        {
+            var window = _latencyFlashWindow;
+            _latencyFlashWindow = null;
+            if (window == null || window.IsDisposed)
+                return;
+
+            window.Close();
+        }
+
         private void ShowLoading(string title, string subtitle)
         {
-            if (_loadingOverlay == null || _loadingTitle == null || _loadingSubtitle == null) return;
+            if (_loadingOverlay == null ||
+                _loadingTitle == null ||
+                _loadingSubtitle == null ||
+                _loadingProgress == null)
+            {
+                return;
+            }
 
             _loadingTitle.Text = title;
             _loadingSubtitle.Text = subtitle;
+
             LayoutLoadingOverlay();
+
             _loadingOverlay.Visible = true;
             _loadingOverlay.BringToFront();
-            _loadingProgress!.MarqueeAnimationSpeed = 28;
+
+            _loadingProgress.MarqueeAnimationSpeed = 28;
         }
 
         private void HideLoading()
         {
-            if (_loadingOverlay == null) return;
+            if (_loadingOverlay == null)
+                return;
 
             if (_loadingProgress != null)
                 _loadingProgress.MarqueeAnimationSpeed = 0;
@@ -960,6 +857,7 @@ namespace DotDesk.App
         private void AppendLog(string msg)
         {
             var line = $"[{DateTime.Now:HH:mm:ss}] {msg}";
+
             if (InvokeRequired)
                 BeginInvoke(() => AppendLogUI(line));
             else
@@ -968,6 +866,11 @@ namespace DotDesk.App
 
         private void AppendLogUI(string line)
         {
+            // åŸæ¥çš„ logInput æ˜¯ Designer æ—§æ§ä»¶ã€‚
+            // å³ä¾§æŠ½ç¦»åå®ƒä¸æ˜¾ç¤ºï¼Œä½†ä¿ç•™æ—¥å¿—å†™å…¥ä¸ä¼šå½±å“ä¸šåŠ¡ã€‚
+            if (logInput == null)
+                return;
+
             logInput.AppendText(line + "\r\n");
             logInput.ScrollToCaret();
         }
@@ -978,209 +881,124 @@ namespace DotDesk.App
             _autoStart?.Dispose();
         }
 
-        private sealed class PasswordDialog : Form
+        protected override void OnResize(EventArgs e)
         {
-            private readonly TextBox _passwordInput;
+            base.OnResize(e);
 
-            public string Password => _passwordInput.Text.Replace("-", "").Replace(" ", "").Trim().ToLowerInvariant();
-
-            public PasswordDialog()
+            if (sidebarPanel != null && mainContentPanel != null)
             {
-                Text = "ÊäÈëÃÜÂë";
-                ClientSize = new Size(360, 202);
-                FormBorderStyle = FormBorderStyle.FixedDialog;
-                MaximizeBox = false;
-                MinimizeBox = false;
-                ShowInTaskbar = false;
-                StartPosition = FormStartPosition.CenterParent;
-                Font = new Font("Microsoft YaHei UI", 9F);
-                BackColor = Color.White;
+                sidebarPanel.Width = SidebarWidth;
+                sidebarPanel.Height = Height;
 
-                var title = new System.Windows.Forms.Label
-                {
-                    AutoSize = false,
-                    Text = "ÇëÊäÈë¶Ô·½µÄÒ»´ÎĞÔÃÜÂë",
-                    Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(30, 41, 59),
-                    Location = new Point(28, 24),
-                    Size = new Size(304, 28)
-                };
-
-                var hint = new System.Windows.Forms.Label
-                {
-                    AutoSize = false,
-                    Text = "ÃÜÂëÎª 6 Î»×ÖÄ¸»òÊı×Ö£¬ÑéÖ¤Í¨¹ıºó»á¼ÌĞø½¨Á¢Á¬½Ó¡£",
-                    ForeColor = Color.FromArgb(100, 116, 139),
-                    Location = new Point(28, 58),
-                    Size = new Size(304, 24)
-                };
-
-                _passwordInput = new TextBox
-                {
-                    Location = new Point(28, 94),
-                    Size = new Size(304, 27),
-                    MaxLength = 6,
-                    PasswordChar = '*',
-                    TextAlign = HorizontalAlignment.Center
-                };
-
-                var cancelButton = new System.Windows.Forms.Button
-                {
-                    Text = "È¡Ïû",
-                    DialogResult = DialogResult.Cancel,
-                    Location = new Point(170, 148),
-                    Size = new Size(76, 30)
-                };
-
-                var okButton = new System.Windows.Forms.Button
-                {
-                    Text = "Á¬½Ó",
-                    DialogResult = DialogResult.OK,
-                    Location = new Point(256, 148),
-                    Size = new Size(76, 30)
-                };
-
-                _passwordInput.KeyPress += (_, e) =>
-                {
-                    if (!char.IsControl(e.KeyChar) && !char.IsLetterOrDigit(e.KeyChar))
-                        e.Handled = true;
-                };
-
-                okButton.Click += (_, _) =>
-                {
-                    if (Password.Length == 6) return;
-
-                    MessageBox.Show(this, "ÇëÊäÈë6Î»×ÖÄ¸»òÊı×ÖÃÜÂë", "ÌáÊ¾", MessageBoxButtons.OK, MessageBoxIcon.Information);
-                    _passwordInput.Focus();
-                    _passwordInput.SelectAll();
-                    DialogResult = DialogResult.None;
-                };
-
-                AcceptButton = okButton;
-                CancelButton = cancelButton;
-                Controls.Add(title);
-                Controls.Add(hint);
-                Controls.Add(_passwordInput);
-                Controls.Add(cancelButton);
-                Controls.Add(okButton);
-
-                Shown += (_, _) => _passwordInput.Focus();
+                mainContentPanel.Location = new Point(SidebarWidth, 0);
+                mainContentPanel.Size = new Size(
+                    Math.Max(100, Width - SidebarWidth),
+                    Height);
             }
+
+            LayoutLoadingOverlay();
+            LayoutCopyToast();
         }
 
-        private sealed class FixedPasswordDialog : Form
+        private void CreateCopyToast()
         {
-            private readonly TextBox _passwordInput;
-
-            public string? FixedPassword { get; private set; }
-
-            public FixedPasswordDialog(string? currentPassword)
+            _copyToastPanel = new AntdUI.Panel
             {
-                Text = "ÉèÖÃ¹Ì¶¨·ÃÎÊÃÜÂë";
-                ClientSize = new Size(380, 226);
-                FormBorderStyle = FormBorderStyle.FixedDialog;
-                MaximizeBox = false;
-                MinimizeBox = false;
-                ShowInTaskbar = false;
-                StartPosition = FormStartPosition.CenterParent;
-                Font = new Font("Microsoft YaHei UI", 9F);
-                BackColor = Color.White;
+                Size = new Size(180, 48),
+                Radius = 10,
+                Back = Color.FromArgb(240, 253, 244),
+                BackColor = Color.FromArgb(240, 253, 244),
+                BorderWidth = 1,
+                BorderColor = Color.FromArgb(134, 239, 172),
+                Shadow = 0,
+                ShadowOpacity = 0f,
+                Visible = false
+            };
 
-                var title = new System.Windows.Forms.Label
-                {
-                    AutoSize = false,
-                    Text = "¹Ì¶¨·ÃÎÊÃÜÂë",
-                    Font = new Font("Microsoft YaHei UI", 12F, FontStyle.Bold),
-                    ForeColor = Color.FromArgb(30, 41, 59),
-                    Location = new Point(28, 24),
-                    Size = new Size(324, 28)
-                };
+            var iconLabel = new System.Windows.Forms.Label
+            {
+                Text = "âœ”",
+                Font = new Font("Segoe UI", 10F, FontStyle.Bold),
+                ForeColor = Color.White,
+                BackColor = Color.FromArgb(34, 197, 94),
+                TextAlign = ContentAlignment.MiddleCenter,
+                Location = new Point(14, 12),
+                Size = new Size(22, 22)
+            };
 
-                var hint = new System.Windows.Forms.Label
-                {
-                    AutoSize = false,
-                    Text = "ÉèÖÃºóÁÙÊ±ÃÜÂë»á¹Ì¶¨Îª¸ÃÖµ¡£Çå¿Õ²¢±£´æ¿É»Ö¸´Ëæ»úÃÜÂë¡£",
-                    ForeColor = Color.FromArgb(100, 116, 139),
-                    Location = new Point(28, 58),
-                    Size = new Size(324, 42)
-                };
+            _copyToastLabel = new System.Windows.Forms.Label
+            {
+                Text = "å·²å¤åˆ¶é‚€è¯·ä¿¡æ¯",
+                Font = new Font("Microsoft YaHei UI", 10F, FontStyle.Bold),
+                ForeColor = Color.FromArgb(22, 101, 52),
+                BackColor = Color.Transparent,
+                TextAlign = ContentAlignment.MiddleLeft,
+                Location = new Point(46, 12),
+                Size = new Size(120, 22)
+            };
 
-                _passwordInput = new TextBox
-                {
-                    Location = new Point(28, 108),
-                    Size = new Size(324, 27),
-                    MaxLength = 6,
-                    Text = currentPassword ?? "",
-                    TextAlign = HorizontalAlignment.Center
-                };
+            _copyToastPanel.Controls.Add(iconLabel);
+            _copyToastPanel.Controls.Add(_copyToastLabel);
 
-                var clearButton = new System.Windows.Forms.Button
-                {
-                    Text = "»Ö¸´Ëæ»ú",
-                    Location = new Point(108, 164),
-                    Size = new Size(82, 30)
-                };
+            Controls.Add(_copyToastPanel);
+            _copyToastPanel.BringToFront();
 
-                var cancelButton = new System.Windows.Forms.Button
-                {
-                    Text = "È¡Ïû",
-                    DialogResult = DialogResult.Cancel,
-                    Location = new Point(196, 164),
-                    Size = new Size(72, 30)
-                };
+            _copyToastTimer = new System.Windows.Forms.Timer
+            {
+                Interval = 1600
+            };
 
-                var saveButton = new System.Windows.Forms.Button
-                {
-                    Text = "±£´æ",
-                    DialogResult = DialogResult.OK,
-                    Location = new Point(280, 164),
-                    Size = new Size(72, 30)
-                };
+            _copyToastTimer.Tick += (_, _) =>
+            {
+                HideCopyToast();
+            };
 
-                _passwordInput.KeyPress += (_, e) =>
-                {
-                    if (!char.IsControl(e.KeyChar) && !char.IsLetterOrDigit(e.KeyChar))
-                        e.Handled = true;
-                };
+            LayoutCopyToast();
+        }
 
-                clearButton.Click += (_, _) =>
-                {
-                    FixedPassword = null;
-                    DialogResult = DialogResult.OK;
-                    Close();
-                };
-
-                saveButton.Click += (_, _) =>
-                {
-                    var normalized = DotDeskSettingsStore.NormalizePassword(_passwordInput.Text);
-                    if (normalized == null)
-                    {
-                        MessageBox.Show(this, "ÇëÊäÈë6Î»×ÖÄ¸»òÊı×Ö£¬»òµã»÷¡°»Ö¸´Ëæ»ú¡±¡£", "ÌáÊ¾",
-                            MessageBoxButtons.OK, MessageBoxIcon.Information);
-                        _passwordInput.Focus();
-                        _passwordInput.SelectAll();
-                        DialogResult = DialogResult.None;
-                        return;
-                    }
-
-                    FixedPassword = normalized;
-                };
-
-                AcceptButton = saveButton;
-                CancelButton = cancelButton;
-                Controls.Add(title);
-                Controls.Add(hint);
-                Controls.Add(_passwordInput);
-                Controls.Add(clearButton);
-                Controls.Add(cancelButton);
-                Controls.Add(saveButton);
-
-                Shown += (_, _) =>
-                {
-                    _passwordInput.Focus();
-                    _passwordInput.SelectAll();
-                };
+        private void ShowCopyToast(string text)
+        {
+            if (InvokeRequired)
+            {
+                BeginInvoke(() => ShowCopyToast(text));
+                return;
             }
+
+            if (_copyToastPanel == null || _copyToastLabel == null || _copyToastTimer == null)
+                return;
+
+            _copyToastLabel.Text = text;
+
+            LayoutCopyToast();
+
+            _copyToastTimer.Stop();
+            _copyToastPanel.Visible = true;
+            _copyToastPanel.BringToFront();
+
+            Controls.SetChildIndex(_copyToastPanel, 0);
+
+            _copyToastTimer.Start();
+        }
+
+        private void HideCopyToast()
+        {
+            if (_copyToastPanel == null || _copyToastTimer == null)
+                return;
+
+            _copyToastTimer.Stop();
+            _copyToastPanel.Visible = false;
+        }
+
+        private void LayoutCopyToast()
+        {
+            if (_copyToastPanel == null)
+                return;
+
+            _copyToastPanel.Location = new Point(
+                Math.Max(0, (Width - _copyToastPanel.Width) / 2),
+                90);
+
+            _copyToastPanel.BringToFront();
         }
     }
 }

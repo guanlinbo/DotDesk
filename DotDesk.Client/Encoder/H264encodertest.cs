@@ -16,15 +16,24 @@ namespace DotDesk.Client.Encoder
             int totalBytes = 0;
 
             using var fs = new FileStream(outputPath, FileMode.Create);
-            using var enc = new H264Encoder(width, height, fps, bitrate: 2_000_000);
+            var options = new VideoEncoderOptions(
+                width,
+                height,
+                VideoPixelFormat.Bgra,
+                fps,
+                2_000_000,
+                VideoEncoderPolicy.CalculateGopSize(fps, VideoConnectionMode.P2P),
+                LowLatencyMode: true,
+                VideoConnectionMode.P2P);
+            using var enc = new X264VideoEncoder(options);
 
-            enc.OnEncoded += (nal, isKey, pts) =>
+            enc.OnEncoded += packet =>
             {
                 nalCount++;
-                totalBytes += nal.Length;
-                fs.Write(nal, 0, nal.Length);
-                if (isKey)
-                    Console.WriteLine($"  [IDR] pts={pts}ms  size={nal.Length}B");
+                totalBytes += packet.Data.Length;
+                fs.Write(packet.Data, 0, packet.Data.Length);
+                if (packet.IsKeyFrame)
+                    Console.WriteLine($"  [IDR] pts={packet.PresentationTimeMs}ms  size={packet.Data.Length}B");
             };
 
             var bgra = new byte[width * height * 4];
@@ -44,7 +53,7 @@ namespace DotDesk.Client.Encoder
                     bgra[p * 4 + 3] = 255;
                 }
 
-                enc.Encode(bgra);
+                enc.Encode(bgra, i * 1000L / fps);
             }
 
             enc.Flush();

@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Diagnostics;
 using Sdcb.FFmpeg.Codecs;
 using Sdcb.FFmpeg.Raw;
 using Sdcb.FFmpeg.Swscales;
@@ -17,6 +18,7 @@ namespace DotDesk.Controller.Network
         private VideoFrameConverter _sws;
         private bool _disposed;
         private int _lastW, _lastH;
+        private long _lastColorProbeTick;
 
         public H264Decoder()
         {
@@ -135,7 +137,27 @@ namespace DotDesk.Controller.Network
                         rowBytes, rowBytes);
             }
 
+            LogColorProbe(output, w, h);
             OnFrame?.Invoke(output, w, h);
+        }
+
+        private void LogColorProbe(byte[] bgr, int width, int height)
+        {
+            long now = Stopwatch.GetTimestamp();
+            if (_lastColorProbeTick != 0 &&
+                now - _lastColorProbeTick < Stopwatch.Frequency)
+                return;
+
+            _lastColorProbeTick = now;
+            if (width <= 0 || height <= 0 || bgr.Length < width * height * 3)
+                return;
+
+            int x = width / 2;
+            int y = height / 2;
+            int i = (y * width + x) * 3;
+            AppLogger.Log(
+                "Color",
+                $"decoder center BGR b={bgr[i]} g={bgr[i + 1]} r={bgr[i + 2]} size={width}x{height}");
         }
 
         private static bool HasStartCode(byte[] data) =>

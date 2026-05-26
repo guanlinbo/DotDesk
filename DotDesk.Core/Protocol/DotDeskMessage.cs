@@ -26,7 +26,8 @@ namespace DotDesk.Core.Protocol
         ConnectionStatus,
         SecureAttention,
         Ping,
-        Pong
+        Pong,
+        VideoFrameMeta
     }
 
     public sealed record DotDeskMessage(
@@ -50,7 +51,13 @@ namespace DotDesk.Core.Protocol
         string? Status = null,
         string? FileId = null,
         string? FileName = null,
-        string? PayloadBase64 = null);
+        string? PayloadBase64 = null,
+        long ControllerSendMonoMs = 0,
+        long HostReceiveMonoMs = 0,
+        long HostSendMonoMs = 0,
+        long ControllerReceiveMonoMs = 0,
+        long FrameId = 0,
+        long HostCaptureMonoMs = 0);
 
     public static class DotDeskMessageCodec
     {
@@ -82,6 +89,12 @@ namespace DotDesk.Core.Protocol
             public string? FileId { get; set; }
             public string? FileName { get; set; }
             public string? PayloadBase64 { get; set; }
+            public long ControllerSendMonoMs { get; set; }
+            public long HostReceiveMonoMs { get; set; }
+            public long HostSendMonoMs { get; set; }
+            public long ControllerReceiveMonoMs { get; set; }
+            public long FrameId { get; set; }
+            public long HostCaptureMonoMs { get; set; }
         }
 
         public static string Serialize(DotDeskMessage message) =>
@@ -161,11 +174,28 @@ namespace DotDesk.Core.Protocol
                 FileId: fileId,
                 PayloadBase64: payloadBase64));
 
-        public static string Ping() =>
-            Serialize(new DotDeskMessage(DotDeskMessageType.Ping));
+        public static string Ping(long controllerSendMonoMs = 0) =>
+            Serialize(new DotDeskMessage(
+                DotDeskMessageType.Ping,
+                ControllerSendMonoMs: controllerSendMonoMs));
 
-        public static string Pong() =>
-            Serialize(new DotDeskMessage(DotDeskMessageType.Pong));
+        public static string Pong(
+            long controllerSendMonoMs = 0,
+            long hostReceiveMonoMs = 0,
+            long hostSendMonoMs = 0,
+            long controllerReceiveMonoMs = 0) =>
+            Serialize(new DotDeskMessage(
+                DotDeskMessageType.Pong,
+                ControllerSendMonoMs: controllerSendMonoMs,
+                HostReceiveMonoMs: hostReceiveMonoMs,
+                HostSendMonoMs: hostSendMonoMs,
+                ControllerReceiveMonoMs: controllerReceiveMonoMs));
+
+        public static string VideoFrameMeta(long frameId, long hostCaptureMonoMs) =>
+            Serialize(new DotDeskMessage(
+                DotDeskMessageType.VideoFrameMeta,
+                FrameId: frameId,
+                HostCaptureMonoMs: hostCaptureMonoMs));
 
         public static DotDeskMessage Parse(string json)
         {
@@ -255,8 +285,24 @@ namespace DotDesk.Core.Protocol
                     FileId: node["fileId"]?.GetValue<string>() ?? "",
                     PayloadBase64: node["payloadBase64"]?.GetValue<string>() ?? ""),
 
-                "ping" => new DotDeskMessage(DotDeskMessageType.Ping),
-                "pong" => new DotDeskMessage(DotDeskMessageType.Pong),
+                "ping" => new DotDeskMessage(
+                    DotDeskMessageType.Ping,
+                    ControllerSendMonoMs: node["controllerSendMonoMs"]?.GetValue<long>() ?? 0,
+                    HostReceiveMonoMs: node["hostReceiveMonoMs"]?.GetValue<long>() ?? 0,
+                    HostSendMonoMs: node["hostSendMonoMs"]?.GetValue<long>() ?? 0,
+                    ControllerReceiveMonoMs: node["controllerReceiveMonoMs"]?.GetValue<long>() ?? 0),
+
+                "pong" => new DotDeskMessage(
+                    DotDeskMessageType.Pong,
+                    ControllerSendMonoMs: node["controllerSendMonoMs"]?.GetValue<long>() ?? 0,
+                    HostReceiveMonoMs: node["hostReceiveMonoMs"]?.GetValue<long>() ?? 0,
+                    HostSendMonoMs: node["hostSendMonoMs"]?.GetValue<long>() ?? 0,
+                    ControllerReceiveMonoMs: node["controllerReceiveMonoMs"]?.GetValue<long>() ?? 0),
+
+                "videoFrameMeta" => new DotDeskMessage(
+                    DotDeskMessageType.VideoFrameMeta,
+                    FrameId: node["frameId"]?.GetValue<long>() ?? 0,
+                    HostCaptureMonoMs: node["hostCaptureMonoMs"]?.GetValue<long>() ?? 0),
                 _ => new DotDeskMessage(DotDeskMessageType.Unknown)
             };
         }
@@ -284,7 +330,13 @@ namespace DotDesk.Core.Protocol
                 Status = message.Status,
                 FileId = message.FileId,
                 FileName = message.FileName,
-                PayloadBase64 = message.PayloadBase64
+                PayloadBase64 = message.PayloadBase64,
+                ControllerSendMonoMs = message.ControllerSendMonoMs,
+                HostReceiveMonoMs = message.HostReceiveMonoMs,
+                HostSendMonoMs = message.HostSendMonoMs,
+                ControllerReceiveMonoMs = message.ControllerReceiveMonoMs,
+                FrameId = message.FrameId,
+                HostCaptureMonoMs = message.HostCaptureMonoMs
             };
 
         private static string ToWireType(DotDeskMessageType type) =>
@@ -310,6 +362,7 @@ namespace DotDesk.Core.Protocol
                 DotDeskMessageType.SecureAttention => "secureAttention",
                 DotDeskMessageType.Ping => "ping",
                 DotDeskMessageType.Pong => "pong",
+                DotDeskMessageType.VideoFrameMeta => "videoFrameMeta",
                 _ => "unknown"
             };
     }

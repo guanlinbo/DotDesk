@@ -1,4 +1,5 @@
 using System;
+using System.Runtime.InteropServices;
 using Vortice.Direct3D;
 using Vortice.Direct3D11;
 using Vortice.DXGI;
@@ -36,10 +37,61 @@ namespace DesktopDuplication
 
         public int Width { get; private set; }
         public int Height { get; private set; }
+        public int Left { get; private set; }
+        public int Top { get; private set; }
+
+        /// <summary>
+        /// 枚举所有适配器和输出，找到第一个真实物理显示器（排除虚拟适配器）。
+        /// 避免 ToDesk/向日葵等远控软件的虚拟显示适配器干扰。
+        /// </summary>
+        public static (int adapterIndex, int outputIndex) FindBestDisplay()
+        {
+            using var factory = DXGI.CreateDXGIFactory2<IDXGIFactory2>(false);
+            for (int ai = 0; ; ai++)
+            {
+                var hr = factory.EnumAdapters1((uint)ai, out IDXGIAdapter1? adapter);
+                if (hr.Failure || adapter == null) break;
+                using (adapter)
+                {
+                    var adDesc = adapter.Description1;
+                    string adName = adDesc.Description ?? "";
+                    // 跳过虚拟适配器（Microsoft Basic Render Driver / 软件渲染）
+                    string adNameLower = adName.ToLowerInvariant();
+                    bool isSoftware = (adDesc.Flags & AdapterFlags.Software) != 0
+                        || adNameLower.Contains("basic render")
+                        || (adNameLower.Contains("microsoft") && adNameLower.Contains("render"))
+                        // 明确排除远控软件的虚拟显示适配器
+                        || adNameLower.Contains("todesk")
+                        || adNameLower.Contains("oray")
+                        || adNameLower.Contains("sunlogin")
+                        || adNameLower.Contains("idd")
+                        || adNameLower.Contains("parsec")
+                        || adNameLower.Contains("virtual display");
+                    if (isSoftware) continue;
+
+                    for (int oi = 0; ; oi++)
+                    {
+                        hr = adapter.EnumOutputs((uint)oi, out IDXGIOutput? output);
+                        if (hr.Failure || output == null) break;
+                        using (output)
+                        {
+                            var outDesc = output.Description;
+                            // 只选桌面附加的、坐标合理的输出（排除虚拟/断开的显示器）
+                            if (!outDesc.AttachedToDesktop) continue;
+                            int w = outDesc.DesktopCoordinates.Right - outDesc.DesktopCoordinates.Left;
+                            int h = outDesc.DesktopCoordinates.Bottom - outDesc.DesktopCoordinates.Top;
+                            if (w <= 0 || h <= 0) continue;
+                            return (ai, oi);
+                        }
+                    }
+                }
+            }
+            return (0, 0); // fallback
+        }
 
         public DesktopCapture(int adapterIndex = 0, int outputIndex = 0)
         {
-            // ── 1. D3D11 Device ──────────────────────────────────────
+            // ── 1. DXGI Factory → 按 adapterIndex 选适配器 ───────────
             var featureLevels = new[]
             {
                 FeatureLevel.Level_11_1,
@@ -47,23 +99,30 @@ namespace DesktopDuplication
                 FeatureLevel.Level_10_1,
             };
 
+            using var factory = DXGI.CreateDXGIFactory2<IDXGIFactory2>(false);
+            factory.EnumAdapters1((uint)adapterIndex, out IDXGIAdapter1? selectedAdapter).CheckError();
+
             D3D11.D3D11CreateDevice(
-                null,
-                DriverType.Hardware,
+                selectedAdapter,
+                DriverType.Unknown,   // 指定了 adapter 时必须用 Unknown
                 DeviceCreationFlags.BgraSupport,
                 featureLevels,
                 out _device!,
                 out _,
                 out _context!).CheckError();
 
-            // ── 2. Adapter / Output ───────────────────────────────────
-            using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
-            using var adapter = dxgiDevice.GetAdapter();
+            selectedAdapter?.Dispose();
 
-            adapter.EnumOutputs((uint)outputIndex, out IDXGIOutput output).CheckError();
+            // ── 2. 重新用 DXGI 路径枚举 Output ───────────────────────
+            using var dxgiDevice = _device.QueryInterface<IDXGIDevice>();
+            using var adapter2 = dxgiDevice.GetAdapter();
+
+            adapter2.EnumOutputs((uint)outputIndex, out IDXGIOutput output).CheckError();
             using (output)
             {
                 var desc = output.Description;
+                Left = desc.DesktopCoordinates.Left;
+                Top = desc.DesktopCoordinates.Top;
                 Width = desc.DesktopCoordinates.Right - desc.DesktopCoordinates.Left;
                 Height = desc.DesktopCoordinates.Bottom - desc.DesktopCoordinates.Top;
 
@@ -118,6 +177,56 @@ namespace DesktopDuplication
                 }
             }
         }
+
+        public CapturedFrame? CaptureCurrentFrameGdi()
+        {
+            IntPtr screenDc = IntPtr.Zero;
+            IntPtr memDc = IntPtr.Zero;
+            IntPtr dib = IntPtr.Zero;
+            IntPtr old = IntPtr.Zero;
+            try
+            {
+                screenDc = Native.GetDC(IntPtr.Zero);
+                if (screenDc == IntPtr.Zero) return null;
+
+                memDc = Native.CreateCompatibleDC(screenDc);
+                if (memDc == IntPtr.Zero) return null;
+
+                var bmi = new Native.BITMAPINFO
+                {
+                    bmiHeader = new Native.BITMAPINFOHEADER
+                    {
+                        biSize = Marshal.SizeOf<Native.BITMAPINFOHEADER>(),
+                        biWidth = Width,
+                        biHeight = -Height,
+                        biPlanes = 1,
+                        biBitCount = 32,
+                        biCompression = Native.BI_RGB
+                    }
+                };
+
+                dib = Native.CreateDIBSection(screenDc, ref bmi, Native.DIB_RGB_COLORS, out IntPtr bits, IntPtr.Zero, 0);
+                if (dib == IntPtr.Zero || bits == IntPtr.Zero) return null;
+
+                old = Native.SelectObject(memDc, dib);
+                if (!Native.BitBlt(memDc, 0, 0, Width, Height, screenDc, Left, Top, Native.SRCCOPY))
+                    return null;
+
+                int bytes = Width * Height * 4;
+                var data = new byte[bytes];
+                Marshal.Copy(bits, data, 0, bytes);
+                return new CapturedFrame(data, Width, Height, StopwatchTimestamp());
+            }
+            finally
+            {
+                if (old != IntPtr.Zero && memDc != IntPtr.Zero) Native.SelectObject(memDc, old);
+                if (dib != IntPtr.Zero) Native.DeleteObject(dib);
+                if (memDc != IntPtr.Zero) Native.DeleteDC(memDc);
+                if (screenDc != IntPtr.Zero) Native.ReleaseDC(IntPtr.Zero, screenDc);
+            }
+        }
+
+        private static long StopwatchTimestamp() => System.Diagnostics.Stopwatch.GetTimestamp();
 
         // ── 工具方法 ─────────────────────────────────────────────────
 
@@ -183,6 +292,84 @@ namespace DesktopDuplication
             _context.Dispose();
             _device.Dispose();
         }
+    }
+
+    internal static class Native
+    {
+        public const int BI_RGB = 0;
+        public const int DIB_RGB_COLORS = 0;
+        public const int SRCCOPY = 0x00CC0020;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BITMAPINFOHEADER
+        {
+            public int biSize;
+            public int biWidth;
+            public int biHeight;
+            public ushort biPlanes;
+            public ushort biBitCount;
+            public int biCompression;
+            public int biSizeImage;
+            public int biXPelsPerMeter;
+            public int biYPelsPerMeter;
+            public int biClrUsed;
+            public int biClrImportant;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct RGBQUAD
+        {
+            public byte rgbBlue;
+            public byte rgbGreen;
+            public byte rgbRed;
+            public byte rgbReserved;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct BITMAPINFO
+        {
+            public BITMAPINFOHEADER bmiHeader;
+            public RGBQUAD bmiColors;
+        }
+
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetDC(IntPtr hwnd);
+
+        [DllImport("user32.dll")]
+        public static extern int ReleaseDC(IntPtr hwnd, IntPtr hdc);
+
+        [DllImport("gdi32.dll")]
+        public static extern IntPtr CreateCompatibleDC(IntPtr hdc);
+
+        [DllImport("gdi32.dll")]
+        public static extern bool DeleteDC(IntPtr hdc);
+
+        [DllImport("gdi32.dll")]
+        public static extern IntPtr SelectObject(IntPtr hdc, IntPtr obj);
+
+        [DllImport("gdi32.dll")]
+        public static extern bool DeleteObject(IntPtr obj);
+
+        [DllImport("gdi32.dll")]
+        public static extern bool BitBlt(
+            IntPtr hdcDest,
+            int xDest,
+            int yDest,
+            int width,
+            int height,
+            IntPtr hdcSrc,
+            int xSrc,
+            int ySrc,
+            int rop);
+
+        [DllImport("gdi32.dll")]
+        public static extern IntPtr CreateDIBSection(
+            IntPtr hdc,
+            ref BITMAPINFO pbmi,
+            int usage,
+            out IntPtr bits,
+            IntPtr section,
+            uint offset);
     }
 }
 
