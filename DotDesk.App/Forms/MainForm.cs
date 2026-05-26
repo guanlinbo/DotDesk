@@ -12,8 +12,8 @@ namespace DotDesk.App
 
         private HomePage? _homePage;
 
-        // 鏂扮殑鏂綉椤甸潰锛氭敞鎰忚繖閲岀敤鐨勬槸 NetworkOfflinePage
-        // 浠ュ悗鏂綉 UI 閮藉幓鏀?NetworkOfflinePage.cs锛屼笉瑕佸啀鏀?MainForm 閲岀殑鏃т唬鐮?
+        // 新的断网页面：注意这里用的是 NetworkOfflinePage
+        // 以后断网 UI 都去改 NetworkOfflinePage.cs，不要再改 MainForm 里的旧代码
         private NetworkOfflinePage? _networkOverlay;
         private System.Windows.Forms.Timer? _offlineRetryTimer;
         private bool _offlineRetrying;
@@ -21,7 +21,6 @@ namespace DotDesk.App
         private DotDesk.App.RoundTabLine? _homeTabLine;
         private DotDesk.App.RoundTabLine? _settingsTabLine;
 
-        
         private enum Tab
         {
             Home,
@@ -37,8 +36,8 @@ namespace DotDesk.App
         private static extern IntPtr SendMessage(IntPtr hWnd, int msg, int wParam, int lParam);
 
         /// <summary>
-        /// 椤堕儴 Tab 涓嬮潰鐨勫皬钃濇潯銆?
-        /// 涓嶇敤鏅€?Panel锛屾槸鍥犱负鏅€?Panel 鍦嗚涓嶅ソ鎺у埗銆?
+        /// 顶部 Tab 下面的小蓝条。
+        /// 不用普通 Panel，是因为普通 Panel 圆角不好控制。
         /// </summary>
         public MainForm()
         {
@@ -46,24 +45,24 @@ namespace DotDesk.App
 
             InitChrome();
 
-            // 棣栭〉
+            // 首页
             _homePage = new HomePage
             {
                 Dock = DockStyle.Fill
             };
 
-            // HomePage 鍙礋璐ｅ憡璇?MainForm锛氱幇鍦ㄦ柇缃戜簡 / 鎭㈠浜?
+            // HomePage 只负责告诉 MainForm：现在断网了 / 恢复了
             _homePage.NetworkOfflineChanged += ToggleNetworkOverlay;
 
             contentPanel.Controls.Clear();
             contentPanel.Controls.Add(_homePage);
 
-            // 鍒涘缓鏂扮殑鏂綉椤甸潰锛岀洊鍦ㄤ富绐楀彛涓?
+            // 创建新的断网页面，盖在主窗口上
             CreateNetworkOverlay();
         }
 
         /// <summary>
-        /// 鍒濆鍖栫獥鍙ｅ澹筹細鏍囬鏍忋€乀ab銆佺獥鍙ｆ寜閽€?
+        /// 初始化窗口外壳：标题栏、Tab、窗口按钮。
         /// </summary>
         private void InitChrome()
         {
@@ -79,7 +78,7 @@ namespace DotDesk.App
 
             contentPanel.BorderWidth = 0;
 
-            // 鍙充笂瑙掔獥鍙ｆ寜閽紝鍏ㄩ儴浣跨敤 SVG锛屼笉鐢ㄦ枃瀛?
+            // 右上角窗口按钮，全部使用 SVG，不用文字
             DotDeskUi.StyleWindowButton(menuButton, "menu");
             DotDeskUi.StyleWindowButton(minimizeWindowButton, "minimize");
             DotDeskUi.StyleWindowButton(maximizeWindowButton, "maximize");
@@ -90,7 +89,7 @@ namespace DotDesk.App
             homeTabButton.Click += homeTabButton_Click;
             settingsTabButton.Click += settingsTabButton_Click;
 
-            // 榧犳爣绉诲埌鍝釜 Tab锛屽摢涓?Tab 涓存椂鍙樿摑
+            // 鼠标移到哪个 Tab，哪个 Tab 临时变蓝
             homeTabButton.MouseEnter += (_, _) => ApplyTabVisual(Tab.Home);
             homeTabButton.MouseLeave += (_, _) => ApplyTabVisual(_currentTab);
 
@@ -101,7 +100,7 @@ namespace DotDesk.App
         }
 
         /// <summary>
-        /// 鍒涘缓椤堕儴 Tab 涓嬫柟鐨勫皬钃濇潯銆?
+        /// 创建顶部 Tab 下方的小蓝条。
         /// </summary>
         private void CreateTabLines()
         {
@@ -124,8 +123,8 @@ namespace DotDesk.App
         }
 
         /// <summary>
-        /// 鏍规嵁鏂囧瓧瀹藉害鑷姩璋冩暣灏忚摑鏉￠暱搴︺€?
-        /// 鎯宠灏忚摑鏉℃洿闀匡紝灏辨敼 +25 杩欎釜鏁般€?
+        /// 根据文字宽度自动调整小蓝条长度。
+        /// 想让小蓝条更长，就改 +25 这个数。
         /// </summary>
         private void LayoutTabLines()
         {
@@ -166,8 +165,8 @@ namespace DotDesk.App
         }
 
         /// <summary>
-        /// 鍒囨崲 Tab 鐨勮瑙夌姸鎬併€?
-        /// 褰撳墠鎴栬€呴紶鏍囨偓鍋滅殑 Tab 鏄摑鑹诧紝鍙︿竴涓槸鐏拌壊銆?
+        /// 切换 Tab 的视觉状态。
+        /// 当前或者鼠标悬停的 Tab 是蓝色，另一个是灰色。
         /// </summary>
         private void ApplyTabVisual(Tab visualTab)
         {
@@ -176,7 +175,6 @@ namespace DotDesk.App
 
             DotDeskUi.StyleTopButton(homeTabButton, "主页", "home", homeBlue);
             DotDeskUi.StyleTopButton(settingsTabButton, "设置", "settings", settingsBlue);
-
 
             //homeTabButton.Back = DotDeskUi.AppBackground;
             homeTabButton.BackColor = DotDeskUi.AppBackground;
@@ -225,8 +223,8 @@ namespace DotDesk.App
 
             contentPanel.Controls.Clear();
 
-            // 杩欓噷鍏堟斁涓€涓畝鍗曞崰浣嶃€?
-            // 浠ュ悗浣犲啓 SettingsPage 鍚庯紝鎶婅繖閲屾浛鎹㈡垚 SettingsPage 鍗冲彲銆?
+            // 这里先放一个简单占位。
+            // 以后你写 SettingsPage 后，把这里替换成 SettingsPage 即可。
             var placeholder = new System.Windows.Forms.Label
             {
                 Dock = DockStyle.Fill,
@@ -241,8 +239,8 @@ namespace DotDesk.App
         }
 
         /// <summary>
-        /// 鍒涘缓鏂綉椤甸潰銆?
-        /// 杩欓噷宸茬粡涓嶇敤鏃х殑 AntPanel 鍗＄墖浜嗭紝鐩存帴浣跨敤 NetworkOfflinePage銆?
+        /// 创建断网页面。
+        /// 这里已经不用旧的 AntPanel 卡片了，直接使用 NetworkOfflinePage。
         /// </summary>
         private void CreateNetworkOverlay()
         {
@@ -273,7 +271,7 @@ namespace DotDesk.App
         }
 
         /// <summary>
-        /// HomePage 妫€娴嬪埌缃戠粶寮傚父鏃讹紝浼氳皟鐢ㄨ繖涓柟娉曘€?
+        /// HomePage 检测到网络异常时，会调用这个方法。
         /// </summary>
         private void ToggleNetworkOverlay(bool visible)
         {
@@ -382,8 +380,8 @@ namespace DotDesk.App
 
             var point = PointToClient(screenPoint);
 
-            // 鍙湁鏍囬鏍忎腑闂寸┖鐧藉尯鍩熷彲浠ユ嫋鍔ㄧ獥鍙ｃ€?
-            // 閬垮厤鎸夐挳銆乀ab 鍖哄煙琚綋鎴愭嫋鍔ㄥ尯銆?
+            // 只有标题栏中间空白区域可以拖动窗口。
+            // 避免按钮、Tab 区域被当成拖动区。
             if (point.Y <= titleBar.Height && point.X > 320 && point.X < ClientSize.Width - 190)
             {
                 m.Result = htCaption;
